@@ -46,7 +46,7 @@
 </head>
 <body class="bg-rose-50/50 text-gray-800 h-[100dvh] w-full flex flex-col items-center justify-center selection:bg-red-200 selection:text-red-900 overflow-hidden">
 
-    <!-- Container Utama (didesain seperti tampilan mobile native yang modern) -->
+    <!-- Container Utama -->
     <div class="max-w-md w-full h-full md:h-[96dvh] mx-auto bg-white flex flex-col relative overflow-hidden md:rounded-3xl md:shadow-[0_20px_60px_-15px_rgba(225,29,72,0.15)] md:border border-rose-100 shadow-xl">
         
         <!-- Navbar -->
@@ -142,7 +142,7 @@
                     </div>
                 </div>
 
-                <!-- Tab Tipe Transaksi (Gaya Pill / Kapsul) -->
+                <!-- Tab Tipe Transaksi -->
                 <div class="bg-gray-100 p-1 rounded-2xl flex mx-4 mt-4 shrink-0 shadow-inner">
                     <button onclick="setTab('Penjualan')" id="tab-Penjualan" class="flex-1 py-2 text-sm font-bold rounded-xl transition-all shadow-sm bg-white text-red-600">Penjualan</button>
                     <button onclick="setTab('Konsi')" id="tab-Konsi" class="flex-1 py-2 text-sm font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700">Konsi</button>
@@ -189,9 +189,16 @@
                 <div class="p-4 shrink-0 bg-white border-b border-gray-100 shadow-sm z-10">
                     <h2 class="text-xl font-extrabold text-gray-900">Riwayat Scan 🗃️</h2>
                     <p class="text-sm text-gray-500 font-medium">Data barcode yang berhasil masuk database.</p>
+                    
+                    <!-- TAB UNTUK HISTORY -->
+                    <div class="bg-gray-100 p-1 rounded-2xl flex mt-4 shadow-inner">
+                        <button onclick="setHistoryTab('Penjualan')" id="hist-tab-Penjualan" class="flex-1 py-2 text-xs font-bold rounded-xl transition-all shadow-sm bg-white text-red-600">Penjualan</button>
+                        <button onclick="setHistoryTab('Konsi')" id="hist-tab-Konsi" class="flex-1 py-2 text-xs font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700">Konsi</button>
+                        <button onclick="setHistoryTab('Retur')" id="hist-tab-Retur" class="flex-1 py-2 text-xs font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700">Retur</button>
+                    </div>
                 </div>
                 
-                <div id="historyListContainer" class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4 pb-10">
+                <div id="historyListContainer" class="flex-1 overflow-y-auto no-scrollbar p-4 pb-10">
                     <!-- Data histori di-render lewat JS -->
                     <div class="text-center py-10">
                         <div class="loader mx-auto mb-4 border-gray-300 border-t-red-500"></div>
@@ -226,6 +233,7 @@
         let selectedSales = null;
         let selectedOutlet = null;
         let currentTab = 'Penjualan'; 
+        let currentHistoryTab = 'Penjualan'; // Tab default untuk History
         let scannedData = []; 
         
         // State untuk pengecekan duplikat dan histori
@@ -264,23 +272,17 @@
                 }
 
                 // Fetch History Data (Untuk cek duplikat & menu histori)
-                // Kita gunakan try-catch terpisah agar kalau histori gagal, aplikasi tetap bisa jalan
                 try {
                     const resHistory = await fetch(SCRIPT_URL + "?action=getHistory");
                     const resultHistory = await resHistory.json();
                     
                     if (resultHistory.status === 'success') {
                         dbHistoryData = resultHistory.data;
-                        // Masukkan semua barcode yang ada di DB ke dalam Set untuk cek duplikat
                         dbHistoryData.forEach(row => {
-                            // Menghapus tanda kutip tunggal "'" jika excel menambahkannya
                             let cleanBarcode = String(row.barcode || row.Barcode || '').replace(/^'/, '').trim();
-                            
-                            // Ambil hanya 11 digit terakhir jika lebih panjang
                             if (cleanBarcode.length > 11) {
                                 cleanBarcode = cleanBarcode.slice(-11);
                             }
-
                             if(cleanBarcode) scannedBarcodesDB.add(cleanBarcode);
                         });
                     }
@@ -443,7 +445,7 @@
 
         function openHistory() {
             previousView = currentView;
-            renderHistoryList();
+            setHistoryTab('Penjualan'); // Reset ke tab penjualan setiap kali buka history
             switchView('history');
         }
 
@@ -517,20 +519,36 @@
             activeEl.classList.add('bg-white', 'text-red-600', 'shadow-sm');
         }
 
+        function setHistoryTab(tabName) {
+            currentHistoryTab = tabName;
+            ['Penjualan', 'Konsi', 'Retur'].forEach(tab => {
+                const el = document.getElementById(`hist-tab-${tab}`);
+                if (el) {
+                    el.classList.remove('bg-white', 'text-red-600', 'shadow-sm');
+                    el.classList.add('text-gray-500');
+                }
+            });
+            const activeEl = document.getElementById(`hist-tab-${tabName}`);
+            if (activeEl) {
+                activeEl.classList.remove('text-gray-500');
+                activeEl.classList.add('bg-white', 'text-red-600', 'shadow-sm');
+            }
+            renderHistoryList(); // Render ulang daftar history sesuai tab yang aktif
+        }
+
         // ================= SCANNER LOGIC =================
         function initScanner() {
             if (!html5QrCode) {
                 html5QrCode = new Html5Qrcode("reader");
             }
             
-            // Ukuran kotak scan dinamis: 70% dari lebar layar HP (maksimal 250px)
             const boxSize = Math.min(window.innerWidth * 0.7, 250);
             
             const config = { 
-                fps: 30, // Ditingkatkan ke 30 FPS agar pergerakan kamera lebih mulus dan responsif
-                qrbox: { width: boxSize, height: boxSize }, // Kotak persegi sempurna yang menyesuaikan layar HP
+                fps: 30, 
+                qrbox: { width: boxSize, height: boxSize }, 
                 experimentalFeatures: {
-                    useBarCodeDetectorIfSupported: true // Fitur ampuh: Gunakan hardware API bawaan HP jika mendukung
+                    useBarCodeDetectorIfSupported: true 
                 }
             };
             
@@ -572,21 +590,18 @@
             // ===== LOGIKA PENGECEKAN DUPLIKAT =====
             let cleanText = decodedText.trim();
 
-            // AMBIL HANYA 11 DIGIT PALING AKHIR SAJA
             if (cleanText.length > 11) {
                 cleanText = cleanText.slice(-11);
             }
 
-            // 1. Cek apakah sudah ada di Database (History)
             if (scannedBarcodesDB.has(cleanText)) {
-                if (navigator.vibrate) navigator.vibrate([100, 100, 100]); // Getar error
+                if (navigator.vibrate) navigator.vibrate([100, 100, 100]); 
                 showToast(`Msisdn sudah ada`, 'error');
                 lastScanTime = now;
-                lastScanValue = decodedText; // Tetap simpan nilai asli scan agar jeda waktu tetap berfungsi
+                lastScanValue = decodedText; 
                 return;
             }
 
-            // 2. Cek apakah sudah ada di Keranjang (scannedData) saat ini
             const alreadyInCart = scannedData.some(item => item.barcode === cleanText);
             if (alreadyInCart) {
                 if (navigator.vibrate) navigator.vibrate([100, 100, 100]); 
@@ -669,37 +684,43 @@
             renderScannedList();
         }
 
-        // ================= RENDER HISTORY LOGIC =================
+        // ================= RENDER HISTORY LOGIC (DIPERBARUI) =================
         function renderHistoryList() {
             const container = document.getElementById('historyListContainer');
             
-            if (!dbHistoryData || dbHistoryData.length === 0) {
+            // 1. Fungsi ambil nilai fleksibel
+            const getV = (row, keyMatch) => {
+                const found = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === keyMatch);
+                return found ? row[found] : '';
+            };
+
+            // 2. Filter history berdasarkan tab tipe transaksi aktif
+            const filteredData = dbHistoryData.filter(row => {
+                const tipe = String(getV(row, 'tipetransaksi') || '').toLowerCase();
+                return tipe === currentHistoryTab.toLowerCase();
+            });
+
+            if (!filteredData || filteredData.length === 0) {
                 container.innerHTML = `
-                    <div class="text-center py-10 mt-4">
+                    <div class="text-center py-10 mt-4 fade-in">
                         <div class="bg-white w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-dashed border-gray-200 shadow-sm">
-                            <i data-lucide="database" class="w-10 h-10 text-gray-300"></i>
+                            <i data-lucide="inbox" class="w-10 h-10 text-gray-300"></i>
                         </div>
-                        <p class="text-sm font-bold text-gray-400">Belum ada riwayat scan sama sekali.</p>
+                        <p class="text-sm font-bold text-gray-400">Belum ada riwayat ${currentHistoryTab}.</p>
                     </div>
                 `;
                 lucide.createIcons();
                 return;
             }
 
-            // Fungsi ambil nilai fleksibel
-            const getV = (row, keyMatch) => {
-                const found = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === keyMatch);
-                return found ? row[found] : '';
-            };
-
-            // 1. Grouping Data by Outlet -> Date (Hanya tanggal YYYY-MM-DD)
+            // 3. Grouping Data by Date -> Outlet
             const groupedHist = {};
             
-            dbHistoryData.forEach(row => {
+            filteredData.forEach(row => {
                 const outletName = String(getV(row, 'namaoutlet') || 'Outlet Tidak Diketahui').trim();
                 let rawTime = getV(row, 'waktuscanhp') || getV(row, 'timestampserver') || '';
                 
-                // Ambil tanggal saja untuk grouping (Asumsi format yyyy-mm-dd hh:mm:ss atau ISO)
+                // Ambil tanggal saja untuk grouping
                 let dateKey = 'Tanggal Tidak Diketahui';
                 if(rawTime) {
                     try {
@@ -709,78 +730,79 @@
                     } catch(e){}
                 }
 
-                if (!groupedHist[outletName]) groupedHist[outletName] = {};
-                if (!groupedHist[outletName][dateKey]) groupedHist[outletName][dateKey] = [];
+                if (!groupedHist[dateKey]) groupedHist[dateKey] = {};
+                if (!groupedHist[dateKey][outletName]) groupedHist[dateKey][outletName] = [];
                 
-                groupedHist[outletName][dateKey].push(row);
+                groupedHist[dateKey][outletName].push(row);
             });
 
             container.innerHTML = '';
 
-            // 2. Render UI Grouping
-            // Loop Outlet
-            for (const [outlet, datesObj] of Object.entries(groupedHist)) {
-                const outletCard = document.createElement('div');
-                outletCard.className = "bg-white border-2 border-gray-100 rounded-2xl overflow-hidden shadow-sm mb-4 fade-in";
+            // 4. Render UI
+            // Sort Dates (Terbaru di atas)
+            const sortedDates = Object.keys(groupedHist).sort((a,b) => new Date(b) - new Date(a));
+
+            sortedDates.forEach(dateStr => {
+                const dateBlock = document.createElement('div');
+                dateBlock.className = "mb-6 fade-in";
                 
-                // Header Outlet
+                // Header Tanggal
                 let html = `
-                    <div class="bg-rose-50 px-4 py-3 border-b border-rose-100 flex items-center gap-3">
-                        <i data-lucide="store" class="w-5 h-5 text-red-500"></i>
-                        <h3 class="font-extrabold text-gray-900 text-sm truncate">${outlet}</h3>
+                    <div class="flex items-center gap-2 mb-3">
+                        <div class="bg-red-500 w-1.5 h-4 rounded-full"></div>
+                        <h3 class="text-sm font-extrabold text-gray-900 tracking-wide uppercase">${dateStr}</h3>
                     </div>
-                    <div class="p-3 space-y-4">
                 `;
 
-                // Sort Dates (Terbaru di atas - simulasi sederhana reverse string)
-                const sortedDates = Object.keys(datesObj).sort((a,b) => new Date(b) - new Date(a));
-
-                sortedDates.forEach(dateStr => {
+                const outletsObj = groupedHist[dateStr];
+                
+                // Render per Outlet di bawah tanggal tersebut
+                for (const [outlet, items] of Object.entries(outletsObj)) {
                     html += `
-                        <div>
-                            <p class="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1">
-                                <i data-lucide="calendar" class="w-3 h-3"></i> ${dateStr}
-                            </p>
-                            <div class="space-y-2">
+                        <div class="bg-white border-2 border-gray-100 rounded-2xl overflow-hidden shadow-sm mb-4">
+                            <!-- Header Outlet -->
+                            <div class="bg-rose-50/50 px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="store" class="w-4 h-4 text-red-500"></i>
+                                    <h4 class="font-bold text-gray-800 text-xs truncate max-w-[200px]">${outlet}</h4>
+                                </div>
+                                <span class="text-[10px] bg-white border border-gray-200 px-2 py-0.5 rounded-md font-bold text-gray-500 shadow-sm">${items.length} Item</span>
+                            </div>
+                            
+                            <!-- Daftar Item dalam Grid 2 Kolom -->
+                            <div class="p-3">
+                                <div class="grid grid-cols-2 gap-2">
                     `;
                     
                     // Sort items by time (Terbaru di atas)
-                    let items = datesObj[dateStr];
                     items.reverse(); 
 
                     items.forEach(item => {
                         let barcode = String(getV(item, 'barcode')).replace(/^'/, '').trim();
-                        
-                        // Menampilkan 11 digit terakhir di riwayat
-                        if (barcode.length > 11) {
-                            barcode = barcode.slice(-11);
-                        }
+                        if (barcode.length > 11) barcode = barcode.slice(-11);
 
-                        let tipe = getV(item, 'tipetransaksi') || '-';
                         let time = getV(item, 'waktuscanhp') || '';
                         if(time && String(time).includes(' ')) time = String(time).split(' ')[1]; // Ambil jam saja
-
-                        let bColor = tipe.toLowerCase() === 'penjualan' ? 'bg-red-50 text-red-600' : 
-                                     tipe.toLowerCase() === 'konsi' ? 'bg-orange-50 text-orange-600' : 'bg-gray-100 text-gray-600';
+                        if(time.length > 5) time = time.slice(0, 5); // Format ringkas HH:MM
 
                         html += `
-                                <div class="flex justify-between items-center bg-gray-50 p-2.5 rounded-xl border border-gray-100">
-                                    <div>
-                                        <p class="text-sm font-mono font-bold text-gray-800">${barcode}</p>
-                                        <p class="text-[10px] text-gray-400 mt-0.5"><i data-lucide="clock" class="inline w-3 h-3 mb-0.5"></i> ${time}</p>
+                                    <div class="flex flex-col bg-gray-50 p-2 rounded-xl border border-gray-100 items-center justify-center text-center">
+                                        <span class="text-xs font-mono font-extrabold text-gray-900">${barcode}</span>
+                                        <span class="text-[9px] text-gray-400 font-medium mt-1 flex items-center gap-0.5"><i data-lucide="clock" class="w-2.5 h-2.5"></i> ${time}</span>
                                     </div>
-                                    <span class="px-2 py-1 rounded-lg text-[9px] font-extrabold uppercase ${bColor}">${tipe}</span>
-                                </div>
                         `;
                     });
 
-                    html += `</div></div>`;
-                });
+                    html += `
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
 
-                html += `</div>`;
-                outletCard.innerHTML = html;
-                container.appendChild(outletCard);
-            }
+                dateBlock.innerHTML = html;
+                container.appendChild(dateBlock);
+            });
             lucide.createIcons();
         }
 
@@ -798,7 +820,7 @@
                 id_outlet: selectedOutlet.id,
                 nama_outlet: selectedOutlet.name,
                 tipe_transaksi: item.tipe,
-                barcode: item.barcode, // Sudah otomatis tersimpan 11 digit karena terpotong dari proses onScanSuccess
+                barcode: item.barcode, 
                 scan_time: item.timestamp.toISOString() 
             }));
 
@@ -820,11 +842,8 @@
                 if (result.status === 'success') {
                     showToast("Data berhasil disimpan!", "success");
                     
-                    // --- UPDATE HISTORI & SET DB LOKAL SECARA INSTAN ---
                     payload.forEach(p => {
-                        // Masukkan ke memori filter duplikat
                         scannedBarcodesDB.add(p.barcode);
-                        // Masukkan ke array histori agar saat buka tab histori, data baru langsung muncul
                         dbHistoryData.push({
                             namasales: p.nama_sales,
                             namaoutlet: p.nama_outlet,
@@ -834,7 +853,6 @@
                         });
                     });
 
-                    // Bersihkan keranjang
                     scannedData = [];
                     renderScannedList();
                     initScanner();
@@ -858,7 +876,6 @@
 
             text.innerText = message;
             
-            // JIKA ERROR, MUNCULKAN PERINGATAN MERAH (Msisdn sudah ada)
             if (type === 'error') {
                 toast.classList.replace('bg-gray-800', 'bg-red-600');
                 icon.setAttribute('data-lucide', 'alert-triangle');
