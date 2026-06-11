@@ -57,8 +57,14 @@
                 </button>
                 <h1 class="text-2xl font-extrabold tracking-tight" id="appTitle">Barcode Sales</h1>
             </div>
-            <div class="bg-white/20 p-2 rounded-full backdrop-blur-sm">
-                <i data-lucide="scan-line" class="w-5 h-5"></i>
+            
+            <div class="flex items-center gap-2">
+                <button id="btnHistory" onclick="openHistory()" class="bg-white/20 p-2 rounded-full backdrop-blur-sm hover:bg-white/30 transition">
+                    <i data-lucide="history" class="w-5 h-5"></i>
+                </button>
+                <div id="iconScanner" class="bg-white/20 p-2 rounded-full backdrop-blur-sm hidden">
+                    <i data-lucide="scan-line" class="w-5 h-5"></i>
+                </div>
             </div>
         </nav>
 
@@ -178,6 +184,22 @@
                 </div>
             </div>
 
+            <!-- ================= VIEW 4: HISTORY SCAN ================= -->
+            <div id="view-history" class="fade-in hidden flex flex-col h-full bg-gray-50/50">
+                <div class="p-4 shrink-0 bg-white border-b border-gray-100 shadow-sm z-10">
+                    <h2 class="text-xl font-extrabold text-gray-900">Riwayat Scan 🗃️</h2>
+                    <p class="text-sm text-gray-500 font-medium">Data barcode yang berhasil masuk database.</p>
+                </div>
+                
+                <div id="historyListContainer" class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-4 pb-10">
+                    <!-- Data histori di-render lewat JS -->
+                    <div class="text-center py-10">
+                        <div class="loader mx-auto mb-4 border-gray-300 border-t-red-500"></div>
+                        <p class="text-sm font-bold text-gray-400">Memuat riwayat...</p>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </div>
 
@@ -187,10 +209,10 @@
         <p id="toastText" class="text-sm font-medium"></p>
     </div>
 
-    <!-- Loading Screen (Saat Submit) -->
+    <!-- Loading Screen -->
     <div id="loadingOverlay" class="fixed inset-0 bg-black bg-opacity-60 z-[60] hidden flex-col items-center justify-center text-white">
         <div class="loader mb-4"></div>
-        <p class="font-medium" id="loadingText">Mengirim data, mohon tunggu...</p>
+        <p class="font-medium" id="loadingText">Menyiapkan data...</p>
     </div>
 
     <script>
@@ -198,12 +220,17 @@
         const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwdeucA8Zj24zh1HHMEGytnkdy1xb-OfwtPyHgCvCAzQLzgQwjFrD1bLv-QU6i3FDMQ/exec";
 
         // ================= STATE MANAGEMENT =================
-        let dataMaster = []; // Data master sekarang berupa array kosong, akan diisi dari Database
-        let currentView = 'sales'; // 'sales', 'outlets', 'scanner'
+        let dataMaster = []; 
+        let currentView = 'sales'; // 'sales', 'outlets', 'scanner', 'history'
+        let previousView = 'sales'; // Untuk tracking tombol back dari history
         let selectedSales = null;
         let selectedOutlet = null;
-        let currentTab = 'Penjualan'; // 'Penjualan', 'Konsi', 'Retur'
-        let scannedData = []; // Menyimpan semua hasil scan
+        let currentTab = 'Penjualan'; 
+        let scannedData = []; 
+        
+        // State untuk pengecekan duplikat dan histori
+        let dbHistoryData = []; // Menyimpan semua data mentah dari DB
+        let scannedBarcodesDB = new Set(); // Set berisi barcode (string) agar cek duplikat secepat kilat
         
         let html5QrCode;
         let isCameraRunning = false;
@@ -213,103 +240,104 @@
 
         // ================= INISIALISASI & RENDERING =================
         window.onload = () => {
-            fetchDataMaster();
+            fetchInitialData();
         };
 
-        // Fungsi untuk mengambil data dari Google Spreadsheet
-        async function fetchDataMaster() {
+        // Fungsi gabungan untuk mengambil Master Outlet dan History
+        async function fetchInitialData() {
             const overlay = document.getElementById('loadingOverlay');
             const loadingText = document.getElementById('loadingText');
             
-            // Tampilkan loading
-            loadingText.innerText = "Mengambil data sales & outlet...";
+            loadingText.innerText = "Mengambil data server...";
             overlay.classList.remove('hidden');
             overlay.classList.add('flex');
 
             try {
-                const response = await fetch(SCRIPT_URL + "?action=getOutlet");
-                const result = await response.json();
+                // Fetch Outlet Master Data
+                const resOutlet = await fetch(SCRIPT_URL + "?action=getOutlet");
+                const resultOutlet = await resOutlet.json();
 
-                if (result.status === 'success') {
-                    const flatData = result.data;
-                    
-                    // Mengelompokkan data (Group By Sales)
-                    const groupedData = {};
-                    flatData.forEach(row => {
-                        // Fungsi pencari kolom yang kebal terhadap huruf besar/kecil dan spasi
-                        const getVal = (keyMatch) => {
-                            const foundKey = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === keyMatch);
-                            return foundKey ? row[foundKey] : '';
-                        };
-
-                        // Ambil data dengan nama kolom yang sudah dinormalisasi
-                        let sId = String(getVal('idsales')).trim();
-                        const sName = String(getVal('namasales')).trim();
-                        let oId = String(getVal('idoutlet')).trim();
-                        const oName = String(getVal('namaoutlet')).trim();
-
-                        // JIKA ID KOSONG, GUNAKAN NAMA SEBAGAI ID (Mencegah data hilang/tidak ditemukan)
-                        if (!sId || sId === 'undefined' || sId === '') sId = sName;
-                        if (!oId || oId === 'undefined' || oId === '') oId = oName;
-
-                        // Syarat wajib: Minimal harus ada Nama Sales agar bisa dimunculkan
-                        if (!sName || sName === 'undefined' || sName === '') return; // Skip jika nama sales kosong
-
-                        if (!groupedData[sId]) {
-                            groupedData[sId] = {
-                                id: sId,
-                                name: sName,
-                                outlets: []
-                            };
-                        }
-                        
-                        // Masukkan outlet jika nama outlet ada isinya
-                        if (oName && oName !== 'undefined' && oName !== '') {
-                            groupedData[sId].outlets.push({
-                                id: oId,
-                                name: oName
-                            });
-                        }
-                    });
-
-                    // Konversi object kembali menjadi array
-                    dataMaster = Object.values(groupedData);
-                    
-                    // CEK LOCALSTORAGE: Apakah ada Sales yang sudah login sebelumnya?
-                    const savedSalesId = localStorage.getItem('savedSalesId');
-                    if (savedSalesId) {
-                        const foundSales = dataMaster.find(s => s.id === savedSalesId);
-                        if (foundSales) {
-                            // Sembunyikan loading sebelum pindah halaman
-                            overlay.classList.add('hidden');
-                            overlay.classList.remove('flex');
-                            loadingText.innerText = "Mengirim data, mohon tunggu..."; 
-                            
-                            // Langsung pilih sales secara otomatis
-                            selectSales(foundSales);
-                            return; // Hentikan fungsi di sini
-                        }
-                    }
-
-                    // Jika tidak ada yang tersimpan, tampilkan halaman awal
-                    renderSalesList(dataMaster);
+                if (resultOutlet.status === 'success') {
+                    processOutletData(resultOutlet.data);
                 } else {
-                    showToast("Gagal memuat data: " + result.message, "error");
-                    document.getElementById('salesListContainer').innerHTML = `<p class="text-center text-red-500 text-sm mt-4 font-bold">Gagal memuat data. Silakan refresh.</p>`;
+                    throw new Error("Gagal memuat outlet");
                 }
+
+                // Fetch History Data (Untuk cek duplikat & menu histori)
+                // Kita gunakan try-catch terpisah agar kalau histori gagal, aplikasi tetap bisa jalan
+                try {
+                    const resHistory = await fetch(SCRIPT_URL + "?action=getHistory");
+                    const resultHistory = await resHistory.json();
+                    
+                    if (resultHistory.status === 'success') {
+                        dbHistoryData = resultHistory.data;
+                        // Masukkan semua barcode yang ada di DB ke dalam Set untuk cek duplikat
+                        dbHistoryData.forEach(row => {
+                            // Menghapus tanda kutip tunggal "'" jika excel menambahkannya
+                            let cleanBarcode = String(row.barcode || row.Barcode || '').replace(/^'/, '').trim();
+                            if(cleanBarcode) scannedBarcodesDB.add(cleanBarcode);
+                        });
+                    }
+                } catch (e) {
+                    console.log("Histori gagal ditarik, tapi aplikasi tetap jalan.", e);
+                }
+
+                // Cek LocalStorage untuk auto-login
+                checkAutoLogin();
+
             } catch (error) {
                 console.error("Error fetching data:", error);
                 showToast("Terjadi kesalahan jaringan.", "error");
-                document.getElementById('salesListContainer').innerHTML = `<p class="text-center text-red-500 text-sm mt-4 font-bold">Koneksi terputus. Pastikan internet Anda aktif.</p>`;
+                document.getElementById('salesListContainer').innerHTML = `<p class="text-center text-red-500 text-sm mt-4 font-bold">Koneksi terputus. Pastikan internet aktif.</p>`;
             } finally {
-                // Sembunyikan loading dan kembalikan teks loading ke default
                 overlay.classList.add('hidden');
                 overlay.classList.remove('flex');
-                loadingText.innerText = "Mengirim data, mohon tunggu..."; 
             }
         }
 
-        // Render List Sales
+        function processOutletData(flatData) {
+            const groupedData = {};
+            flatData.forEach(row => {
+                const getVal = (keyMatch) => {
+                    const foundKey = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === keyMatch);
+                    return foundKey ? row[foundKey] : '';
+                };
+
+                let sId = String(getVal('idsales')).trim();
+                const sName = String(getVal('namasales')).trim();
+                let oId = String(getVal('idoutlet')).trim();
+                const oName = String(getVal('namaoutlet')).trim();
+
+                if (!sId || sId === 'undefined' || sId === '') sId = sName;
+                if (!oId || oId === 'undefined' || oId === '') oId = oName;
+
+                if (!sName || sName === 'undefined' || sName === '') return;
+
+                if (!groupedData[sId]) {
+                    groupedData[sId] = { id: sId, name: sName, outlets: [] };
+                }
+                
+                if (oName && oName !== 'undefined' && oName !== '') {
+                    groupedData[sId].outlets.push({ id: oId, name: oName });
+                }
+            });
+
+            dataMaster = Object.values(groupedData);
+        }
+
+        function checkAutoLogin() {
+            const savedSalesId = localStorage.getItem('savedSalesId');
+            if (savedSalesId) {
+                const foundSales = dataMaster.find(s => s.id === savedSalesId);
+                if (foundSales) {
+                    selectSales(foundSales);
+                    return; 
+                }
+            }
+            renderSalesList(dataMaster);
+        }
+
+        // ================= RENDER LIST =================
         function renderSalesList(data) {
             const container = document.getElementById('salesListContainer');
             container.innerHTML = '';
@@ -340,12 +368,9 @@
             lucide.createIcons();
         }
 
-        // Render List Outlet
         function renderOutletList(data) {
             const container = document.getElementById('outletListContainer');
             container.innerHTML = '';
-            
-            // Update jumlah outlet di tampilan
             document.getElementById('outletCount').innerText = data.length;
             
             if(data.length === 0) {
@@ -390,40 +415,37 @@
 
         // ================= NAVIGASI =================
         function selectSales(sales) {
-            // Simpan ID Sales ke memori HP (localStorage) agar tidak perlu login ulang
             localStorage.setItem('savedSalesId', sales.id);
-
             selectedSales = sales;
             document.getElementById('lblSelectedSales').innerText = sales.name;
             document.getElementById('lblScannerSales').innerText = sales.name;
             document.getElementById('searchOutlet').value = '';
             renderOutletList(sales.outlets);
-            
             switchView('outlets');
         }
 
         function selectOutlet(outlet) {
             selectedOutlet = outlet;
             document.getElementById('lblSelectedOutlet').innerText = outlet.name;
-            
-            // Reset state scanner
             scannedData = [];
             renderScannedList();
             setTab('Penjualan');
-
             switchView('scanner');
             
-            // Inisialisasi Scanner dengan delay sedikit agar UI render dulu
-            setTimeout(() => {
-                initScanner();
-            }, 300);
+            setTimeout(() => { initScanner(); }, 300);
+        }
+
+        function openHistory() {
+            previousView = currentView;
+            renderHistoryList();
+            switchView('history');
         }
 
         function goBack() {
-            if (currentView === 'outlets') {
-                // Hapus data sales tersimpan saat user klik kembali (untuk ganti akun)
+            if (currentView === 'history') {
+                switchView(previousView);
+            } else if (currentView === 'outlets') {
                 localStorage.removeItem('savedSalesId');
-                
                 selectedSales = null;
                 document.getElementById('searchSales').value = '';
                 renderSalesList(dataMaster);
@@ -440,56 +462,69 @@
         }
 
         function switchView(viewName) {
-            // Hide all
             document.getElementById('view-sales').classList.add('hidden');
             document.getElementById('view-outlets').classList.add('hidden');
             document.getElementById('view-scanner').classList.add('hidden');
+            document.getElementById('view-history').classList.add('hidden');
             
-            // Show target
             document.getElementById(`view-${viewName}`).classList.remove('hidden');
             currentView = viewName;
 
-            // Handle Back Button & Title
             const btnBack = document.getElementById('btnBack');
+            const btnHistory = document.getElementById('btnHistory');
+            const iconScanner = document.getElementById('iconScanner');
             const appTitle = document.getElementById('appTitle');
             
             if (viewName === 'sales') {
                 btnBack.classList.add('hidden');
+                btnHistory.classList.remove('hidden');
+                iconScanner.classList.add('hidden');
                 appTitle.innerText = "Barcode Sales";
             } else if (viewName === 'outlets') {
                 btnBack.classList.remove('hidden');
+                btnHistory.classList.remove('hidden');
+                iconScanner.classList.add('hidden');
                 appTitle.innerText = "Pilih Outlet";
             } else if (viewName === 'scanner') {
                 btnBack.classList.remove('hidden');
+                btnHistory.classList.add('hidden');
+                iconScanner.classList.remove('hidden');
                 appTitle.innerText = "Scanner";
+            } else if (viewName === 'history') {
+                btnBack.classList.remove('hidden');
+                btnHistory.classList.add('hidden');
+                iconScanner.classList.add('hidden');
+                appTitle.innerText = "Histori Scanner";
             }
         }
 
         // ================= TAB MANAGEMENT =================
         function setTab(tabName) {
             currentTab = tabName;
-            
-            // Reset styles
             ['Penjualan', 'Konsi', 'Retur'].forEach(tab => {
                 const el = document.getElementById(`tab-${tab}`);
                 el.classList.remove('bg-white', 'text-red-600', 'shadow-sm');
                 el.classList.add('text-gray-500');
             });
-            
-            // Set active style
             const activeEl = document.getElementById(`tab-${tabName}`);
             activeEl.classList.remove('text-gray-500');
             activeEl.classList.add('bg-white', 'text-red-600', 'shadow-sm');
         }
 
-        // ================= SCANNER LIGIC =================
+        // ================= SCANNER LOGIC =================
         function initScanner() {
             if (!html5QrCode) {
                 html5QrCode = new Html5Qrcode("reader");
             }
             
-            // Kamera dibuat lebih pendek (rasio 1.5) agar layar scan lebih luas
-            const config = { fps: 10, qrbox: { width: 220, height: 100 }, aspectRatio: 1.5 };
+            // Ubah kotak scan (qrbox) menjadi persegi (180x180) agar QR Code bisa terbaca utuh
+            // aspectRatio disesuaikan agar kamera tetap tidak memakan banyak tempat di layar
+            const config = { 
+                fps: 10, 
+                qrbox: { width: 180, height: 180 }, 
+                aspectRatio: 1.33,
+                disableFlip: false // Membantu membaca QR/Barcode yang posisinya terbalik
+            };
             
             html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
                 .then(() => {
@@ -516,59 +551,69 @@
         }
 
         function toggleCamera() {
-            if (isCameraRunning) {
-                stopScanner();
-            } else {
-                initScanner();
-            }
+            if (isCameraRunning) { stopScanner(); } else { initScanner(); }
         }
 
-        // Mencegah scan ganda secara beruntun (debounce)
         let lastScanTime = 0;
         let lastScanValue = "";
 
         function onScanSuccess(decodedText, decodedResult) {
             const now = Date.now();
-            // Prevent same scan within 3 seconds
-            if (decodedText === lastScanValue && (now - lastScanTime) < 3000) {
-                return; 
+            if (decodedText === lastScanValue && (now - lastScanTime) < 3000) return; 
+
+            // ===== LOGIKA PENGECEKAN DUPLIKAT =====
+            const cleanText = decodedText.trim();
+
+            // 1. Cek apakah sudah ada di Database (History)
+            if (scannedBarcodesDB.has(cleanText)) {
+                if (navigator.vibrate) navigator.vibrate([100, 100, 100]); // Getar error
+                showToast(`Ups! Barcode ${cleanText} sudah pernah masuk Database!`, 'error');
+                lastScanTime = now;
+                lastScanValue = decodedText;
+                return;
             }
 
-            // Vibrate jika di mobile
+            // 2. Cek apakah sudah ada di Keranjang (scannedData) saat ini
+            const alreadyInCart = scannedData.some(item => item.barcode === cleanText);
+            if (alreadyInCart) {
+                if (navigator.vibrate) navigator.vibrate([100, 100, 100]); 
+                showToast(`Barcode ${cleanText} sudah ada di keranjang scan!`, 'error');
+                lastScanTime = now;
+                lastScanValue = decodedText;
+                return;
+            }
+            // ======================================
+
             if (navigator.vibrate) navigator.vibrate(200);
 
             lastScanTime = now;
             lastScanValue = decodedText;
 
-            // Tambahkan ke keranjang
             scannedData.unshift({
                 id: Date.now().toString(),
-                barcode: decodedText,
+                barcode: cleanText,
                 tipe: currentTab,
                 timestamp: new Date()
             });
 
-            showToast(`Berhasil scan: ${decodedText}`);
+            showToast(`Berhasil scan: ${cleanText}`, 'success');
             renderScannedList();
         }
 
-        function onScanFailure(error) {
-            // Abaikan error saat proses mencari barcode
-        }
+        function onScanFailure(error) { /* Ignore */ }
 
         // ================= RENDER CART/SCANNED ITEMS =================
         function renderScannedList() {
             const container = document.getElementById('scannedList');
-            const emptyState = document.getElementById('emptyState');
             const btnSubmit = document.getElementById('btnSubmitData');
             
             document.getElementById('scanCount').innerText = scannedData.length;
 
             if (scannedData.length === 0) {
                 container.innerHTML = `
-                    <div id="emptyScanState" class="text-center py-10">
-                        <div class="bg-gray-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-dashed border-gray-200">
-                            <i data-lucide="ghost" class="w-8 h-8 text-gray-300"></i>
+                    <div id="emptyScanState" class="text-center py-10 mt-4">
+                        <div class="bg-white w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-dashed border-red-200 shadow-sm">
+                            <i data-lucide="ghost" class="w-10 h-10 text-red-300"></i>
                         </div>
                         <p class="text-sm font-bold text-gray-400">Keranjang scan masih kosong nih.</p>
                     </div>
@@ -582,14 +627,11 @@
             container.innerHTML = '';
 
             scannedData.forEach(item => {
-                // Tema Merah Putih Gen Z untuk Badge
-                let badgeColor = 'bg-red-100 text-red-700'; // Penjualan (Merah)
-                if(item.tipe === 'Konsi') badgeColor = 'bg-orange-100 text-orange-700'; // Konsi (Orange)
-                if(item.tipe === 'Retur') badgeColor = 'bg-gray-800 text-white'; // Retur (Edgy/Black)
+                let badgeColor = item.tipe === 'Penjualan' ? 'bg-red-100 text-red-700' : 
+                                 item.tipe === 'Konsi' ? 'bg-orange-100 text-orange-700' : 'bg-gray-800 text-white';
 
                 const card = document.createElement('div');
                 card.className = "bg-white p-4 rounded-2xl border-2 border-gray-100 shadow-sm flex justify-between items-center fade-in hover:border-red-200 transition-colors";
-                
                 const timeStr = item.timestamp.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
                 card.innerHTML = `
@@ -614,6 +656,115 @@
             renderScannedList();
         }
 
+        // ================= RENDER HISTORY LOGIC =================
+        function renderHistoryList() {
+            const container = document.getElementById('historyListContainer');
+            
+            if (!dbHistoryData || dbHistoryData.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center py-10 mt-4">
+                        <div class="bg-white w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-dashed border-gray-200 shadow-sm">
+                            <i data-lucide="database" class="w-10 h-10 text-gray-300"></i>
+                        </div>
+                        <p class="text-sm font-bold text-gray-400">Belum ada riwayat scan sama sekali.</p>
+                    </div>
+                `;
+                lucide.createIcons();
+                return;
+            }
+
+            // Fungsi ambil nilai fleksibel
+            const getV = (row, keyMatch) => {
+                const found = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === keyMatch);
+                return found ? row[found] : '';
+            };
+
+            // 1. Grouping Data by Outlet -> Date (Hanya tanggal YYYY-MM-DD)
+            const groupedHist = {};
+            
+            dbHistoryData.forEach(row => {
+                const outletName = String(getV(row, 'namaoutlet') || 'Outlet Tidak Diketahui').trim();
+                let rawTime = getV(row, 'waktuscanhp') || getV(row, 'timestampserver') || '';
+                
+                // Ambil tanggal saja untuk grouping (Asumsi format yyyy-mm-dd hh:mm:ss atau ISO)
+                let dateKey = 'Tanggal Tidak Diketahui';
+                if(rawTime) {
+                    try {
+                        const d = new Date(rawTime);
+                        if(!isNaN(d)) dateKey = d.toLocaleDateString('id-ID', { year:'numeric', month:'short', day:'numeric' });
+                        else dateKey = String(rawTime).split(' ')[0];
+                    } catch(e){}
+                }
+
+                if (!groupedHist[outletName]) groupedHist[outletName] = {};
+                if (!groupedHist[outletName][dateKey]) groupedHist[outletName][dateKey] = [];
+                
+                groupedHist[outletName][dateKey].push(row);
+            });
+
+            container.innerHTML = '';
+
+            // 2. Render UI Grouping
+            // Loop Outlet
+            for (const [outlet, datesObj] of Object.entries(groupedHist)) {
+                const outletCard = document.createElement('div');
+                outletCard.className = "bg-white border-2 border-gray-100 rounded-2xl overflow-hidden shadow-sm mb-4 fade-in";
+                
+                // Header Outlet
+                let html = `
+                    <div class="bg-rose-50 px-4 py-3 border-b border-rose-100 flex items-center gap-3">
+                        <i data-lucide="store" class="w-5 h-5 text-red-500"></i>
+                        <h3 class="font-extrabold text-gray-900 text-sm truncate">${outlet}</h3>
+                    </div>
+                    <div class="p-3 space-y-4">
+                `;
+
+                // Sort Dates (Terbaru di atas - simulasi sederhana reverse string)
+                const sortedDates = Object.keys(datesObj).sort((a,b) => new Date(b) - new Date(a));
+
+                sortedDates.forEach(dateStr => {
+                    html += `
+                        <div>
+                            <p class="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-2 flex items-center gap-1">
+                                <i data-lucide="calendar" class="w-3 h-3"></i> ${dateStr}
+                            </p>
+                            <div class="space-y-2">
+                    `;
+                    
+                    // Sort items by time (Terbaru di atas)
+                    let items = datesObj[dateStr];
+                    items.reverse(); 
+
+                    items.forEach(item => {
+                        let barcode = String(getV(item, 'barcode')).replace(/^'/, '').trim();
+                        let tipe = getV(item, 'tipetransaksi') || '-';
+                        let time = getV(item, 'waktuscanhp') || '';
+                        if(time && String(time).includes(' ')) time = String(time).split(' ')[1]; // Ambil jam saja
+
+                        let bColor = tipe.toLowerCase() === 'penjualan' ? 'bg-red-50 text-red-600' : 
+                                     tipe.toLowerCase() === 'konsi' ? 'bg-orange-50 text-orange-600' : 'bg-gray-100 text-gray-600';
+
+                        html += `
+                                <div class="flex justify-between items-center bg-gray-50 p-2.5 rounded-xl border border-gray-100">
+                                    <div>
+                                        <p class="text-sm font-mono font-bold text-gray-800">${barcode}</p>
+                                        <p class="text-[10px] text-gray-400 mt-0.5"><i data-lucide="clock" class="inline w-3 h-3 mb-0.5"></i> ${time}</p>
+                                    </div>
+                                    <span class="px-2 py-1 rounded-lg text-[9px] font-extrabold uppercase ${bColor}">${tipe}</span>
+                                </div>
+                        `;
+                    });
+
+                    html += `</div></div>`;
+                });
+
+                html += `</div>`;
+                outletCard.innerHTML = html;
+                container.appendChild(outletCard);
+            }
+            lucide.createIcons();
+        }
+
         // ================= SUBMIT KE DATABASE =================
         async function submitData() {
             if (scannedData.length === 0) return;
@@ -622,7 +773,6 @@
                 return;
             }
 
-            // Siapkan payload sesuai kebutuhan backend baru
             const payload = scannedData.map(item => ({
                 id_sales: selectedSales.id,
                 nama_sales: selectedSales.name,
@@ -630,14 +780,14 @@
                 nama_outlet: selectedOutlet.name,
                 tipe_transaksi: item.tipe,
                 barcode: item.barcode,
-                // Gas handle timestamp di server atau kirim string
                 scan_time: item.timestamp.toISOString() 
             }));
 
-            // Hentikan kamera sementara submit
             stopScanner();
-            document.getElementById('loadingOverlay').classList.remove('hidden');
-            document.getElementById('loadingOverlay').classList.add('flex');
+            const overlay = document.getElementById('loadingOverlay');
+            document.getElementById('loadingText').innerText = "Menyimpan ke Database...";
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
 
             try {
                 const response = await fetch(SCRIPT_URL, {
@@ -650,10 +800,24 @@
 
                 if (result.status === 'success') {
                     showToast("Data berhasil disimpan!", "success");
+                    
+                    // --- UPDATE HISTORI & SET DB LOKAL SECARA INSTAN ---
+                    payload.forEach(p => {
+                        // Masukkan ke memori filter duplikat
+                        scannedBarcodesDB.add(p.barcode);
+                        // Masukkan ke array histori agar saat buka tab histori, data baru langsung muncul
+                        dbHistoryData.push({
+                            namasales: p.nama_sales,
+                            namaoutlet: p.nama_outlet,
+                            tipetransaksi: p.tipe_transaksi,
+                            barcode: p.barcode,
+                            waktuscanhp: p.scan_time
+                        });
+                    });
+
                     // Bersihkan keranjang
                     scannedData = [];
                     renderScannedList();
-                    // Mulai ulang kamera
                     initScanner();
                 } else {
                     throw new Error(result.message || "Gagal menyimpan");
@@ -661,10 +825,9 @@
             } catch (error) {
                 showToast("Terjadi kesalahan jaringan/server.", "error");
                 console.error(error);
-                // Biarkan user mencoba submit lagi
             } finally {
-                document.getElementById('loadingOverlay').classList.add('hidden');
-                document.getElementById('loadingOverlay').classList.remove('flex');
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flex');
             }
         }
 
@@ -678,7 +841,7 @@
             
             if (type === 'error') {
                 toast.classList.replace('bg-gray-800', 'bg-red-600');
-                icon.setAttribute('data-lucide', 'alert-circle');
+                icon.setAttribute('data-lucide', 'alert-triangle');
             } else if (type === 'success') {
                 toast.classList.replace('bg-gray-800', 'bg-green-600');
                 icon.setAttribute('data-lucide', 'check-circle');
@@ -690,11 +853,7 @@
             lucide.createIcons();
 
             toast.classList.remove('opacity-0', 'pointer-events-none');
-            
-            // Sembunyikan setelah 3 detik
-            setTimeout(() => {
-                toast.classList.add('opacity-0', 'pointer-events-none');
-            }, 3000);
+            setTimeout(() => { toast.classList.add('opacity-0', 'pointer-events-none'); }, 4000);
         }
 
     </script>
