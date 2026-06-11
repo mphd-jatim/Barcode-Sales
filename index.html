@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Barcode Sales App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts untuk tampilan Gen Z -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Library untuk Barcode Scanner -->
+    <script src="https://unpkg.com/html5-qrcode"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* Mencegah pull-to-refresh di HP */
+        body { 
+            overscroll-behavior-y: contain; 
+            font-family: 'Plus Jakarta Sans', sans-serif;
+        }
+        
+        /* Sembunyikan scrollbar agar lebih clean (Native App feel) */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Styling untuk frame kamera */
+        #reader { width: 100%; border-radius: 1.5rem; overflow: hidden; border: 4px solid #ffe4e6; box-shadow: 0 8px 20px 0 rgba(225, 29, 72, 0.15); background-color: #000; position: relative;}
+        #reader video { object-fit: cover; border-radius: 1rem; width: 100% !important; max-height: 25vh !important; }
+        
+        /* Animasi fade in */
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        /* Loading spinner */
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #e11d48; /* Warna merah */
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-rose-50/50 text-gray-800 h-[100dvh] w-full flex flex-col items-center justify-center selection:bg-red-200 selection:text-red-900 overflow-hidden">
+
+    <!-- Container Utama (didesain seperti tampilan mobile native yang modern) -->
+    <div class="max-w-md w-full h-full md:h-[96dvh] mx-auto bg-white flex flex-col relative overflow-hidden md:rounded-3xl md:shadow-[0_20px_60px_-15px_rgba(225,29,72,0.15)] md:border border-rose-100 shadow-xl">
+        
+        <!-- Navbar -->
+        <nav class="bg-gradient-to-r from-red-600 to-rose-500 text-white p-5 shadow-md shrink-0 flex items-center justify-between z-10 relative rounded-b-3xl mb-2">
+            <div class="flex items-center gap-3">
+                <button id="btnBack" class="hidden p-2 hover:bg-white/20 rounded-full transition backdrop-blur-sm" onclick="goBack()">
+                    <i data-lucide="arrow-left" class="w-6 h-6"></i>
+                </button>
+                <h1 class="text-2xl font-extrabold tracking-tight" id="appTitle">Barcode Sales</h1>
+            </div>
+            <div class="bg-white/20 p-2 rounded-full backdrop-blur-sm">
+                <i data-lucide="scan-line" class="w-5 h-5"></i>
+            </div>
+        </nav>
+
+        <!-- Area Konten Utama -->
+        <main class="flex-1 overflow-y-auto no-scrollbar relative flex flex-col">
+
+            <!-- ================= VIEW 1: PILIH SALES ================= -->
+            <div id="view-sales" class="p-4 fade-in flex flex-col h-full">
+                <div class="mb-6 shrink-0">
+                    <h2 class="text-2xl font-extrabold text-gray-900 mb-1">Hai, Siapa kamu? 👋</h2>
+                    <p class="text-sm text-gray-500 font-medium">Pilih nama akun sales kamu di bawah ini.</p>
+                </div>
+
+                <!-- Search Input -->
+                <div class="relative mb-4 shrink-0">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <i data-lucide="search" class="w-5 h-5 text-gray-400"></i>
+                    </div>
+                    <input type="text" id="searchSales" onkeyup="filterSales()" class="bg-gray-50 border-2 border-gray-100 text-gray-900 text-sm rounded-2xl focus:ring-red-500 focus:border-red-500 block w-full pl-11 p-4 font-bold transition outline-none" placeholder="Cari nama sales...">
+                </div>
+
+                <!-- List Sales -->
+                <div id="salesListContainer" class="space-y-3 pb-6 flex-1 overflow-y-auto no-scrollbar">
+                    <!-- Data sales di-render lewat JS -->
+                </div>
+            </div>
+
+            <!-- ================= VIEW 2: PILIH OUTLET ================= -->
+            <div id="view-outlets" class="p-4 fade-in hidden flex flex-col h-full">
+                <div class="mb-6 shrink-0 bg-gradient-to-br from-rose-50 to-red-50 border border-rose-100 p-4 rounded-2xl flex items-center gap-4 shadow-sm">
+                    <div class="bg-white p-3 rounded-xl text-red-600 shadow-sm">
+                        <i data-lucide="user-check" class="w-6 h-6"></i>
+                    </div>
+                    <div>
+                        <p class="text-xs text-red-500 font-bold uppercase tracking-wider">Sales Aktif</p>
+                        <p class="text-lg font-extrabold text-gray-900" id="lblSelectedSales">-</p>
+                    </div>
+                </div>
+
+                <div class="mb-4 shrink-0 flex justify-between items-center gap-2">
+                    <div>
+                        <h2 class="text-2xl font-extrabold text-gray-900 mb-1">Kunjungan Outlet 🏪</h2>
+                        <p class="text-sm text-gray-500 font-medium">Pilih toko yang sedang dikunjungi.</p>
+                    </div>
+                    <div class="bg-red-100 text-red-600 px-3 py-1.5 rounded-xl text-sm font-extrabold shadow-sm whitespace-nowrap text-center">
+                        <span id="outletCount" class="text-lg">0</span>
+                        <span class="block text-[10px] uppercase tracking-wider mt-[-2px]">Toko</span>
+                    </div>
+                </div>
+
+                <!-- Search Input -->
+                <div class="relative mb-4 shrink-0">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <i data-lucide="search" class="w-5 h-5 text-gray-400"></i>
+                    </div>
+                    <input type="text" id="searchOutlet" onkeyup="filterOutlets()" class="bg-gray-50 border-2 border-gray-100 text-gray-900 text-sm rounded-2xl focus:ring-red-500 focus:border-red-500 block w-full pl-11 p-4 font-bold transition outline-none" placeholder="Cari nama outlet...">
+                </div>
+
+                <!-- List Outlet -->
+                <div id="outletListContainer" class="space-y-3 pb-6 flex-1 overflow-y-auto no-scrollbar">
+                    <!-- Data outlet di-render lewat JS -->
+                </div>
+            </div>
+
+            <!-- ================= VIEW 3: SCANNER & KERANJANG ================= -->
+            <div id="view-scanner" class="fade-in hidden flex flex-col h-full">
+                <!-- Info Kunjungan -->
+                <div class="bg-white px-4 py-3 border-b border-gray-100 flex items-center gap-3 shrink-0">
+                    <div class="bg-red-100 p-2.5 rounded-full text-red-600 shrink-0"><i data-lucide="map-pin" class="w-5 h-5"></i></div>
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-extrabold text-gray-800 truncate" id="lblSelectedOutlet">-</p>
+                        <p class="text-[11px] font-bold text-gray-500 truncate mt-0.5 flex items-center gap-1">
+                            <i data-lucide="user" class="w-3.5 h-3.5 text-red-400"></i> Sales: <span id="lblScannerSales" class="text-red-600">-</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Tab Tipe Transaksi (Gaya Pill / Kapsul) -->
+                <div class="bg-gray-100 p-1 rounded-2xl flex mx-4 mt-4 shrink-0 shadow-inner">
+                    <button onclick="setTab('Penjualan')" id="tab-Penjualan" class="flex-1 py-2 text-sm font-bold rounded-xl transition-all shadow-sm bg-white text-red-600">Penjualan</button>
+                    <button onclick="setTab('Konsi')" id="tab-Konsi" class="flex-1 py-2 text-sm font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700">Konsi</button>
+                    <button onclick="setTab('Retur')" id="tab-Retur" class="flex-1 py-2 text-sm font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700">Retur</button>
+                </div>
+
+                <!-- Area Scanner -->
+                <div class="p-4 shrink-0 bg-white">
+                    <div id="reader"></div>
+                    <div class="flex justify-between items-center mt-3 px-1">
+                        <p class="text-xs text-gray-500 font-bold flex items-center gap-1.5"><i data-lucide="focus" class="w-4 h-4 text-red-500"></i> Arahkan kamera ke Barcode</p>
+                        <button onclick="toggleCamera()" id="btnCameraToggle" class="text-xs font-extrabold px-4 py-2 rounded-xl transition-all shadow-sm bg-rose-100 text-rose-600 hover:bg-rose-200 active:scale-95">Stop Kamera</button>
+                    </div>
+                </div>
+
+                <!-- Hasil Scan (Cards) -->
+                <div class="flex-1 overflow-y-auto no-scrollbar px-4 pt-2 bg-gray-50/50">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-sm font-extrabold text-gray-900">Daftar Scan <span class="bg-red-100 text-red-600 px-2.5 py-0.5 rounded-full ml-1" id="scanCount">0</span></h3>
+                    </div>
+                    
+                    <div id="scannedList" class="space-y-3 pb-32">
+                        <!-- Jika kosong -->
+                        <div id="emptyScanState" class="text-center py-10 mt-4">
+                            <div class="bg-white w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-dashed border-red-200 shadow-sm">
+                                <i data-lucide="ghost" class="w-10 h-10 text-red-300"></i>
+                            </div>
+                            <p class="text-sm font-bold text-gray-400">Keranjang scan masih kosong nih.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tombol Submit Floating -->
+                <div class="absolute bottom-0 left-0 right-0 p-4 bg-white/80 backdrop-blur-md border-t border-rose-50 pb-6 pt-4 z-20">
+                    <button id="btnSubmitData" onclick="submitData()" disabled class="w-full bg-red-600 text-white font-extrabold py-4 rounded-2xl shadow-[0_8px_20px_-6px_rgba(225,29,72,0.6)] hover:bg-red-700 hover:-translate-y-1 active:scale-95 disabled:transform-none disabled:bg-gray-200 disabled:text-gray-400 disabled:shadow-none transition-all flex items-center justify-center gap-2 text-lg">
+                        <i data-lucide="send-h" class="w-6 h-6"></i>
+                        Kirim Data Scan
+                    </button>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Message Box untuk Notifikasi (Toast) -->
+    <div id="toastMsg" class="fixed top-4 left-1/2 transform -translate-x-1/2 max-w-sm w-[90%] bg-gray-800 text-white px-4 py-3 rounded-lg shadow-xl opacity-0 pointer-events-none transition-opacity duration-300 z-50 flex items-center gap-3">
+        <i id="toastIcon" data-lucide="info" class="w-5 h-5"></i>
+        <p id="toastText" class="text-sm font-medium"></p>
+    </div>
+
+    <!-- Loading Screen (Saat Submit) -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-black bg-opacity-60 z-[60] hidden flex-col items-center justify-center text-white">
+        <div class="loader mb-4"></div>
+        <p class="font-medium" id="loadingText">Mengirim data, mohon tunggu...</p>
+    </div>
+
+    <script>
+        // SETUP URL GOOGLE APPS SCRIPT
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwdeucA8Zj24zh1HHMEGytnkdy1xb-OfwtPyHgCvCAzQLzgQwjFrD1bLv-QU6i3FDMQ/exec";
+
+        // ================= STATE MANAGEMENT =================
+        let dataMaster = []; // Data master sekarang berupa array kosong, akan diisi dari Database
+        let currentView = 'sales'; // 'sales', 'outlets', 'scanner'
+        let selectedSales = null;
+        let selectedOutlet = null;
+        let currentTab = 'Penjualan'; // 'Penjualan', 'Konsi', 'Retur'
+        let scannedData = []; // Menyimpan semua hasil scan
+        
+        let html5QrCode;
+        let isCameraRunning = false;
+
+        // Initialize icons
+        lucide.createIcons();
+
+        // ================= INISIALISASI & RENDERING =================
+        window.onload = () => {
+            fetchDataMaster();
+        };
+
+        // Fungsi untuk mengambil data dari Google Spreadsheet
+        async function fetchDataMaster() {
+            const overlay = document.getElementById('loadingOverlay');
+            const loadingText = document.getElementById('loadingText');
+            
+            // Tampilkan loading
+            loadingText.innerText = "Mengambil data sales & outlet...";
+            overlay.classList.remove('hidden');
+            overlay.classList.add('flex');
+
+            try {
+                const response = await fetch(SCRIPT_URL + "?action=getOutlet");
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    const flatData = result.data;
+                    
+                    // Mengelompokkan data (Group By Sales)
+                    const groupedData = {};
+                    flatData.forEach(row => {
+                        // Fungsi pencari kolom yang kebal terhadap huruf besar/kecil dan spasi
+                        const getVal = (keyMatch) => {
+                            const foundKey = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === keyMatch);
+                            return foundKey ? row[foundKey] : '';
+                        };
+
+                        // Ambil data dengan nama kolom yang sudah dinormalisasi
+                        let sId = String(getVal('idsales')).trim();
+                        const sName = String(getVal('namasales')).trim();
+                        let oId = String(getVal('idoutlet')).trim();
+                        const oName = String(getVal('namaoutlet')).trim();
+
+                        // JIKA ID KOSONG, GUNAKAN NAMA SEBAGAI ID (Mencegah data hilang/tidak ditemukan)
+                        if (!sId || sId === 'undefined' || sId === '') sId = sName;
+                        if (!oId || oId === 'undefined' || oId === '') oId = oName;
+
+                        // Syarat wajib: Minimal harus ada Nama Sales agar bisa dimunculkan
+                        if (!sName || sName === 'undefined' || sName === '') return; // Skip jika nama sales kosong
+
+                        if (!groupedData[sId]) {
+                            groupedData[sId] = {
+                                id: sId,
+                                name: sName,
+                                outlets: []
+                            };
+                        }
+                        
+                        // Masukkan outlet jika nama outlet ada isinya
+                        if (oName && oName !== 'undefined' && oName !== '') {
+                            groupedData[sId].outlets.push({
+                                id: oId,
+                                name: oName
+                            });
+                        }
+                    });
+
+                    // Konversi object kembali menjadi array
+                    dataMaster = Object.values(groupedData);
+                    
+                    // CEK LOCALSTORAGE: Apakah ada Sales yang sudah login sebelumnya?
+                    const savedSalesId = localStorage.getItem('savedSalesId');
+                    if (savedSalesId) {
+                        const foundSales = dataMaster.find(s => s.id === savedSalesId);
+                        if (foundSales) {
+                            // Sembunyikan loading sebelum pindah halaman
+                            overlay.classList.add('hidden');
+                            overlay.classList.remove('flex');
+                            loadingText.innerText = "Mengirim data, mohon tunggu..."; 
+                            
+                            // Langsung pilih sales secara otomatis
+                            selectSales(foundSales);
+                            return; // Hentikan fungsi di sini
+                        }
+                    }
+
+                    // Jika tidak ada yang tersimpan, tampilkan halaman awal
+                    renderSalesList(dataMaster);
+                } else {
+                    showToast("Gagal memuat data: " + result.message, "error");
+                    document.getElementById('salesListContainer').innerHTML = `<p class="text-center text-red-500 text-sm mt-4 font-bold">Gagal memuat data. Silakan refresh.</p>`;
+                }
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                showToast("Terjadi kesalahan jaringan.", "error");
+                document.getElementById('salesListContainer').innerHTML = `<p class="text-center text-red-500 text-sm mt-4 font-bold">Koneksi terputus. Pastikan internet Anda aktif.</p>`;
+            } finally {
+                // Sembunyikan loading dan kembalikan teks loading ke default
+                overlay.classList.add('hidden');
+                overlay.classList.remove('flex');
+                loadingText.innerText = "Mengirim data, mohon tunggu..."; 
+            }
+        }
+
+        // Render List Sales
+        function renderSalesList(data) {
+            const container = document.getElementById('salesListContainer');
+            container.innerHTML = '';
+            
+            if(data.length === 0) {
+                container.innerHTML = `<p class="text-center text-gray-500 text-sm mt-4 font-medium">Hmm, sales tidak ditemukan 🕵️‍♂️</p>`;
+                return;
+            }
+
+            data.forEach(sales => {
+                const btn = document.createElement('button');
+                btn.className = "w-full flex items-center justify-between p-4 bg-white border-2 border-gray-100 rounded-2xl hover:border-red-300 hover:bg-rose-50 hover:shadow-md transition-all text-left group";
+                btn.onclick = () => selectSales(sales);
+                btn.innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <div class="bg-gray-50 p-3 rounded-full group-hover:bg-red-100 group-hover:text-red-600 transition-colors"><i data-lucide="user" class="w-5 h-5 text-gray-500 group-hover:text-red-600"></i></div>
+                        <div>
+                            <p class="font-extrabold text-gray-900 text-base">${sales.name}</p>
+                            <p class="text-xs font-bold text-gray-400 mt-0.5 tracking-wider uppercase">ID: ${sales.id}</p>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 p-2 rounded-full group-hover:bg-red-500 group-hover:text-white transition-colors">
+                        <i data-lucide="arrow-right" class="w-4 h-4 text-gray-400 group-hover:text-white"></i>
+                    </div>
+                `;
+                container.appendChild(btn);
+            });
+            lucide.createIcons();
+        }
+
+        // Render List Outlet
+        function renderOutletList(data) {
+            const container = document.getElementById('outletListContainer');
+            container.innerHTML = '';
+            
+            // Update jumlah outlet di tampilan
+            document.getElementById('outletCount').innerText = data.length;
+            
+            if(data.length === 0) {
+                container.innerHTML = `<p class="text-center text-gray-500 text-sm mt-4 font-medium">Outlet tidak ditemukan 🕵️‍♂️</p>`;
+                return;
+            }
+
+            data.forEach(outlet => {
+                const btn = document.createElement('button');
+                btn.className = "w-full flex items-center justify-between p-4 bg-white border-2 border-gray-100 rounded-2xl hover:border-red-300 hover:bg-rose-50 hover:shadow-md transition-all text-left group";
+                btn.onclick = () => selectOutlet(outlet);
+                btn.innerHTML = `
+                    <div class="flex items-center gap-4">
+                        <div class="bg-rose-50 p-3 rounded-full text-red-600 group-hover:bg-red-600 group-hover:text-white transition-colors"><i data-lucide="store" class="w-5 h-5"></i></div>
+                        <div>
+                            <p class="font-extrabold text-gray-900 text-base">${outlet.name}</p>
+                            <p class="text-xs font-bold text-gray-400 mt-0.5 tracking-wider uppercase">ID: ${outlet.id}</p>
+                        </div>
+                    </div>
+                    <div class="bg-gray-50 p-2 rounded-full group-hover:bg-red-500 group-hover:text-white transition-colors">
+                        <i data-lucide="arrow-right" class="w-4 h-4 text-gray-400 group-hover:text-white"></i>
+                    </div>
+                `;
+                container.appendChild(btn);
+            });
+            lucide.createIcons();
+        }
+
+        // ================= SEARCH & FILTER =================
+        function filterSales() {
+            const input = document.getElementById('searchSales').value.toLowerCase();
+            const filtered = dataMaster.filter(s => s.name.toLowerCase().includes(input) || s.id.toLowerCase().includes(input));
+            renderSalesList(filtered);
+        }
+
+        function filterOutlets() {
+            if(!selectedSales) return;
+            const input = document.getElementById('searchOutlet').value.toLowerCase();
+            const filtered = selectedSales.outlets.filter(o => o.name.toLowerCase().includes(input) || o.id.toLowerCase().includes(input));
+            renderOutletList(filtered);
+        }
+
+        // ================= NAVIGASI =================
+        function selectSales(sales) {
+            // Simpan ID Sales ke memori HP (localStorage) agar tidak perlu login ulang
+            localStorage.setItem('savedSalesId', sales.id);
+
+            selectedSales = sales;
+            document.getElementById('lblSelectedSales').innerText = sales.name;
+            document.getElementById('lblScannerSales').innerText = sales.name;
+            document.getElementById('searchOutlet').value = '';
+            renderOutletList(sales.outlets);
+            
+            switchView('outlets');
+        }
+
+        function selectOutlet(outlet) {
+            selectedOutlet = outlet;
+            document.getElementById('lblSelectedOutlet').innerText = outlet.name;
+            
+            // Reset state scanner
+            scannedData = [];
+            renderScannedList();
+            setTab('Penjualan');
+
+            switchView('scanner');
+            
+            // Inisialisasi Scanner dengan delay sedikit agar UI render dulu
+            setTimeout(() => {
+                initScanner();
+            }, 300);
+        }
+
+        function goBack() {
+            if (currentView === 'outlets') {
+                // Hapus data sales tersimpan saat user klik kembali (untuk ganti akun)
+                localStorage.removeItem('savedSalesId');
+                
+                selectedSales = null;
+                document.getElementById('searchSales').value = '';
+                renderSalesList(dataMaster);
+                switchView('sales');
+            } else if (currentView === 'scanner') {
+                if(scannedData.length > 0) {
+                    const confirmBack = confirm("Ada data yang belum di-submit. Yakin ingin kembali? Data scan akan hilang.");
+                    if(!confirmBack) return;
+                }
+                stopScanner();
+                selectedOutlet = null;
+                switchView('outlets');
+            }
+        }
+
+        function switchView(viewName) {
+            // Hide all
+            document.getElementById('view-sales').classList.add('hidden');
+            document.getElementById('view-outlets').classList.add('hidden');
+            document.getElementById('view-scanner').classList.add('hidden');
+            
+            // Show target
+            document.getElementById(`view-${viewName}`).classList.remove('hidden');
+            currentView = viewName;
+
+            // Handle Back Button & Title
+            const btnBack = document.getElementById('btnBack');
+            const appTitle = document.getElementById('appTitle');
+            
+            if (viewName === 'sales') {
+                btnBack.classList.add('hidden');
+                appTitle.innerText = "Barcode Sales";
+            } else if (viewName === 'outlets') {
+                btnBack.classList.remove('hidden');
+                appTitle.innerText = "Pilih Outlet";
+            } else if (viewName === 'scanner') {
+                btnBack.classList.remove('hidden');
+                appTitle.innerText = "Scanner";
+            }
+        }
+
+        // ================= TAB MANAGEMENT =================
+        function setTab(tabName) {
+            currentTab = tabName;
+            
+            // Reset styles
+            ['Penjualan', 'Konsi', 'Retur'].forEach(tab => {
+                const el = document.getElementById(`tab-${tab}`);
+                el.classList.remove('bg-white', 'text-red-600', 'shadow-sm');
+                el.classList.add('text-gray-500');
+            });
+            
+            // Set active style
+            const activeEl = document.getElementById(`tab-${tabName}`);
+            activeEl.classList.remove('text-gray-500');
+            activeEl.classList.add('bg-white', 'text-red-600', 'shadow-sm');
+        }
+
+        // ================= SCANNER LIGIC =================
+        function initScanner() {
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("reader");
+            }
+            
+            // Kamera dibuat lebih pendek (rasio 1.5) agar layar scan lebih luas
+            const config = { fps: 10, qrbox: { width: 220, height: 100 }, aspectRatio: 1.5 };
+            
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
+                .then(() => {
+                    isCameraRunning = true;
+                    document.getElementById('btnCameraToggle').innerText = "Stop Kamera";
+                    document.getElementById('btnCameraToggle').classList.replace('bg-green-100', 'bg-rose-100');
+                    document.getElementById('btnCameraToggle').classList.replace('text-green-600', 'text-rose-600');
+                })
+                .catch((err) => {
+                    showToast("Gagal mengakses kamera. Pastikan izin diberikan.", "error");
+                    console.log(err);
+                });
+        }
+
+        function stopScanner() {
+            if (html5QrCode && isCameraRunning) {
+                html5QrCode.stop().then(() => {
+                    isCameraRunning = false;
+                    document.getElementById('btnCameraToggle').innerText = "Mulai Kamera";
+                    document.getElementById('btnCameraToggle').classList.replace('bg-rose-100', 'bg-green-100');
+                    document.getElementById('btnCameraToggle').classList.replace('text-rose-600', 'text-green-600');
+                }).catch(err => console.log(err));
+            }
+        }
+
+        function toggleCamera() {
+            if (isCameraRunning) {
+                stopScanner();
+            } else {
+                initScanner();
+            }
+        }
+
+        // Mencegah scan ganda secara beruntun (debounce)
+        let lastScanTime = 0;
+        let lastScanValue = "";
+
+        function onScanSuccess(decodedText, decodedResult) {
+            const now = Date.now();
+            // Prevent same scan within 3 seconds
+            if (decodedText === lastScanValue && (now - lastScanTime) < 3000) {
+                return; 
+            }
+
+            // Vibrate jika di mobile
+            if (navigator.vibrate) navigator.vibrate(200);
+
+            lastScanTime = now;
+            lastScanValue = decodedText;
+
+            // Tambahkan ke keranjang
+            scannedData.unshift({
+                id: Date.now().toString(),
+                barcode: decodedText,
+                tipe: currentTab,
+                timestamp: new Date()
+            });
+
+            showToast(`Berhasil scan: ${decodedText}`);
+            renderScannedList();
+        }
+
+        function onScanFailure(error) {
+            // Abaikan error saat proses mencari barcode
+        }
+
+        // ================= RENDER CART/SCANNED ITEMS =================
+        function renderScannedList() {
+            const container = document.getElementById('scannedList');
+            const emptyState = document.getElementById('emptyState');
+            const btnSubmit = document.getElementById('btnSubmitData');
+            
+            document.getElementById('scanCount').innerText = scannedData.length;
+
+            if (scannedData.length === 0) {
+                container.innerHTML = `
+                    <div id="emptyScanState" class="text-center py-10">
+                        <div class="bg-gray-50 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4 border-2 border-dashed border-gray-200">
+                            <i data-lucide="ghost" class="w-8 h-8 text-gray-300"></i>
+                        </div>
+                        <p class="text-sm font-bold text-gray-400">Keranjang scan masih kosong nih.</p>
+                    </div>
+                `;
+                btnSubmit.disabled = true;
+                lucide.createIcons();
+                return;
+            }
+
+            btnSubmit.disabled = false;
+            container.innerHTML = '';
+
+            scannedData.forEach(item => {
+                // Tema Merah Putih Gen Z untuk Badge
+                let badgeColor = 'bg-red-100 text-red-700'; // Penjualan (Merah)
+                if(item.tipe === 'Konsi') badgeColor = 'bg-orange-100 text-orange-700'; // Konsi (Orange)
+                if(item.tipe === 'Retur') badgeColor = 'bg-gray-800 text-white'; // Retur (Edgy/Black)
+
+                const card = document.createElement('div');
+                card.className = "bg-white p-4 rounded-2xl border-2 border-gray-100 shadow-sm flex justify-between items-center fade-in hover:border-red-200 transition-colors";
+                
+                const timeStr = item.timestamp.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                card.innerHTML = `
+                    <div class="flex-1 min-w-0 pr-3">
+                        <div class="flex items-center gap-2 mb-1.5">
+                            <span class="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-widest ${badgeColor}">${item.tipe}</span>
+                            <span class="text-[10px] font-medium text-gray-400"><i data-lucide="clock" class="inline w-3 h-3 mb-0.5"></i> ${timeStr}</span>
+                        </div>
+                        <p class="text-base font-mono font-bold text-gray-900 truncate">${item.barcode}</p>
+                    </div>
+                    <button onclick="removeScan('${item.id}')" class="p-2.5 bg-rose-50 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all shrink-0">
+                        <i data-lucide="trash-2" class="w-5 h-5"></i>
+                    </button>
+                `;
+                container.appendChild(card);
+            });
+            lucide.createIcons();
+        }
+
+        function removeScan(id) {
+            scannedData = scannedData.filter(item => item.id !== id);
+            renderScannedList();
+        }
+
+        // ================= SUBMIT KE DATABASE =================
+        async function submitData() {
+            if (scannedData.length === 0) return;
+            if (SCRIPT_URL === "ISI_URL_GOOGLE_APPS_SCRIPT_ANDA_DISINI") {
+                alert("URL Google Apps Script belum diatur!");
+                return;
+            }
+
+            // Siapkan payload sesuai kebutuhan backend baru
+            const payload = scannedData.map(item => ({
+                id_sales: selectedSales.id,
+                nama_sales: selectedSales.name,
+                id_outlet: selectedOutlet.id,
+                nama_outlet: selectedOutlet.name,
+                tipe_transaksi: item.tipe,
+                barcode: item.barcode,
+                // Gas handle timestamp di server atau kirim string
+                scan_time: item.timestamp.toISOString() 
+            }));
+
+            // Hentikan kamera sementara submit
+            stopScanner();
+            document.getElementById('loadingOverlay').classList.remove('hidden');
+            document.getElementById('loadingOverlay').classList.add('flex');
+
+            try {
+                const response = await fetch(SCRIPT_URL, {
+                    method: 'POST',
+                    body: JSON.stringify(payload),
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+                });
+
+                const result = await response.json();
+
+                if (result.status === 'success') {
+                    showToast("Data berhasil disimpan!", "success");
+                    // Bersihkan keranjang
+                    scannedData = [];
+                    renderScannedList();
+                    // Mulai ulang kamera
+                    initScanner();
+                } else {
+                    throw new Error(result.message || "Gagal menyimpan");
+                }
+            } catch (error) {
+                showToast("Terjadi kesalahan jaringan/server.", "error");
+                console.error(error);
+                // Biarkan user mencoba submit lagi
+            } finally {
+                document.getElementById('loadingOverlay').classList.add('hidden');
+                document.getElementById('loadingOverlay').classList.remove('flex');
+            }
+        }
+
+        // ================= TOAST NOTIFICATION =================
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toastMsg');
+            const text = document.getElementById('toastText');
+            const icon = document.getElementById('toastIcon');
+
+            text.innerText = message;
+            
+            if (type === 'error') {
+                toast.classList.replace('bg-gray-800', 'bg-red-600');
+                icon.setAttribute('data-lucide', 'alert-circle');
+            } else if (type === 'success') {
+                toast.classList.replace('bg-gray-800', 'bg-green-600');
+                icon.setAttribute('data-lucide', 'check-circle');
+            } else {
+                toast.classList.replace('bg-red-600', 'bg-gray-800');
+                toast.classList.replace('bg-green-600', 'bg-gray-800');
+                icon.setAttribute('data-lucide', 'info');
+            }
+            lucide.createIcons();
+
+            toast.classList.remove('opacity-0', 'pointer-events-none');
+            
+            // Sembunyikan setelah 3 detik
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'pointer-events-none');
+            }, 3000);
+        }
+
+    </script>
+</body>
+</html>
