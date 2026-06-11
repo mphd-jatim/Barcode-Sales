@@ -275,6 +275,12 @@
                         dbHistoryData.forEach(row => {
                             // Menghapus tanda kutip tunggal "'" jika excel menambahkannya
                             let cleanBarcode = String(row.barcode || row.Barcode || '').replace(/^'/, '').trim();
+                            
+                            // Ambil hanya 11 digit terakhir jika lebih panjang
+                            if (cleanBarcode.length > 11) {
+                                cleanBarcode = cleanBarcode.slice(-11);
+                            }
+
                             if(cleanBarcode) scannedBarcodesDB.add(cleanBarcode);
                         });
                     }
@@ -564,14 +570,19 @@
             if (decodedText === lastScanValue && (now - lastScanTime) < 3000) return; 
 
             // ===== LOGIKA PENGECEKAN DUPLIKAT =====
-            const cleanText = decodedText.trim();
+            let cleanText = decodedText.trim();
+
+            // AMBIL HANYA 11 DIGIT PALING AKHIR SAJA
+            if (cleanText.length > 11) {
+                cleanText = cleanText.slice(-11);
+            }
 
             // 1. Cek apakah sudah ada di Database (History)
             if (scannedBarcodesDB.has(cleanText)) {
                 if (navigator.vibrate) navigator.vibrate([100, 100, 100]); // Getar error
-                showToast(`Ups! Barcode ${cleanText} sudah pernah masuk Database!`, 'error');
+                showToast(`Msisdn sudah ada`, 'error');
                 lastScanTime = now;
-                lastScanValue = decodedText;
+                lastScanValue = decodedText; // Tetap simpan nilai asli scan agar jeda waktu tetap berfungsi
                 return;
             }
 
@@ -579,7 +590,7 @@
             const alreadyInCart = scannedData.some(item => item.barcode === cleanText);
             if (alreadyInCart) {
                 if (navigator.vibrate) navigator.vibrate([100, 100, 100]); 
-                showToast(`Barcode ${cleanText} sudah ada di keranjang scan!`, 'error');
+                showToast(`Msisdn sudah ada`, 'error');
                 lastScanTime = now;
                 lastScanValue = decodedText;
                 return;
@@ -739,6 +750,12 @@
 
                     items.forEach(item => {
                         let barcode = String(getV(item, 'barcode')).replace(/^'/, '').trim();
+                        
+                        // Menampilkan 11 digit terakhir di riwayat
+                        if (barcode.length > 11) {
+                            barcode = barcode.slice(-11);
+                        }
+
                         let tipe = getV(item, 'tipetransaksi') || '-';
                         let time = getV(item, 'waktuscanhp') || '';
                         if(time && String(time).includes(' ')) time = String(time).split(' ')[1]; // Ambil jam saja
@@ -781,7 +798,7 @@
                 id_outlet: selectedOutlet.id,
                 nama_outlet: selectedOutlet.name,
                 tipe_transaksi: item.tipe,
-                barcode: item.barcode,
+                barcode: item.barcode, // Sudah otomatis tersimpan 11 digit karena terpotong dari proses onScanSuccess
                 scan_time: item.timestamp.toISOString() 
             }));
 
@@ -833,7 +850,7 @@
             }
         }
 
-        // ================= TOAST NOTIFICATION =================
+        // ================= TOAST NOTIFICATION (ALERTS) =================
         function showToast(message, type = 'info') {
             const toast = document.getElementById('toastMsg');
             const text = document.getElementById('toastText');
@@ -841,6 +858,7 @@
 
             text.innerText = message;
             
+            // JIKA ERROR, MUNCULKAN PERINGATAN MERAH (Msisdn sudah ada)
             if (type === 'error') {
                 toast.classList.replace('bg-gray-800', 'bg-red-600');
                 icon.setAttribute('data-lucide', 'alert-triangle');
