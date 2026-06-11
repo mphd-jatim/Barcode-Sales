@@ -23,7 +23,7 @@
 
         /* Styling untuk frame kamera */
         #reader { width: 100%; border-radius: 1.5rem; overflow: hidden; border: 4px solid #ffe4e6; box-shadow: 0 8px 20px 0 rgba(225, 29, 72, 0.15); background-color: #000; position: relative;}
-        #reader video { object-fit: cover; border-radius: 1rem; width: 100% !important; max-height: 25vh !important; }
+        #reader video { object-fit: cover; border-radius: 1rem; width: 100% !important; max-height: 35vh !important; }
         
         /* Animasi fade in */
         .fade-in { animation: fadeIn 0.3s ease-in-out; }
@@ -517,13 +517,15 @@
                 html5QrCode = new Html5Qrcode("reader");
             }
             
-            // Ubah kotak scan (qrbox) menjadi persegi (180x180) agar QR Code bisa terbaca utuh
-            // aspectRatio disesuaikan agar kamera tetap tidak memakan banyak tempat di layar
+            // Ukuran kotak scan dinamis: 70% dari lebar layar HP (maksimal 250px)
+            const boxSize = Math.min(window.innerWidth * 0.7, 250);
+            
             const config = { 
-                fps: 10, 
-                qrbox: { width: 180, height: 180 }, 
-                aspectRatio: 1.33,
-                disableFlip: false // Membantu membaca QR/Barcode yang posisinya terbalik
+                fps: 30, // Ditingkatkan ke 30 FPS agar pergerakan kamera lebih mulus dan responsif
+                qrbox: { width: boxSize, height: boxSize }, // Kotak persegi sempurna yang menyesuaikan layar HP
+                experimentalFeatures: {
+                    useBarCodeDetectorIfSupported: true // Fitur ampuh: Gunakan hardware API bawaan HP jika mendukung
+                }
             };
             
             html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
