@@ -161,7 +161,7 @@
                     <!-- Input Manual Barcode (Mendukung Range) -->
                     <div class="mt-3 px-1 flex flex-col gap-2">
                         <div class="flex items-center gap-2">
-                            <input type="text" inputmode="numeric" id="manualBarcodeInput" onkeypress="handleManualInput(event)" class="bg-gray-50 border-2 border-gray-100 text-gray-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input manual barcode...">
+                            <input type="text" inputmode="numeric" id="manualBarcodeInput" onkeypress="handleManualInput(event)" class="bg-gray-50 border-2 border-gray-100 text-gray-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input Msisdn manual...">
                             <button onclick="toggleRangeInput()" id="btnToggleRange" class="bg-gray-100 text-gray-500 p-2.5 rounded-xl hover:bg-gray-200 active:scale-95 transition-all shadow-sm shrink-0" title="Mode Range Barcode">
                                 <i data-lucide="list-plus" class="w-5 h-5"></i>
                             </button>
@@ -173,7 +173,7 @@
                         <!-- Input Range Akhir (Tersembunyi secara default) -->
                         <div id="rangeInputContainer" class="hidden flex items-center gap-2 fade-in">
                             <div class="bg-rose-50 border border-rose-100 px-3 py-2.5 rounded-xl text-red-500 font-bold text-sm shrink-0">s/d</div>
-                            <input type="text" inputmode="numeric" id="manualBarcodeEndInput" onkeypress="handleManualInput(event)" class="bg-rose-50 border-2 border-rose-100 text-red-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input barcode nomor akhir...">
+                            <input type="text" inputmode="numeric" id="manualBarcodeEndInput" onkeypress="handleManualInput(event)" class="bg-rose-50 border-2 border-rose-100 text-red-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input Msisdn akhir...">
                         </div>
                     </div>
                 </div>
@@ -570,7 +570,7 @@
                 container.classList.remove('hidden');
                 btn.classList.replace('bg-gray-100', 'bg-red-100');
                 btn.classList.replace('text-gray-500', 'text-red-600');
-                document.getElementById('manualBarcodeInput').placeholder = "Input barcode awal...";
+                document.getElementById('manualBarcodeInput').placeholder = "Input Msisdn Awal...";
             } else {
                 container.classList.add('hidden');
                 btn.classList.replace('bg-red-100', 'bg-gray-100');
