@@ -143,10 +143,11 @@
                 </div>
 
                 <!-- Tab Tipe Transaksi -->
-                <div class="bg-gray-100 p-1 rounded-2xl flex mx-4 mt-4 shrink-0 shadow-inner">
-                    <button onclick="setTab('Penjualan')" id="tab-Penjualan" class="flex-1 py-2 text-sm font-bold rounded-xl transition-all shadow-sm bg-white text-red-600">Penjualan</button>
-                    <button onclick="setTab('Konsi')" id="tab-Konsi" class="flex-1 py-2 text-sm font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700">Konsi</button>
-                    <button onclick="setTab('Retur')" id="tab-Retur" class="flex-1 py-2 text-sm font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700">Retur</button>
+                <div class="bg-gray-100 p-1 rounded-2xl flex mx-4 mt-4 shrink-0 shadow-inner overflow-x-auto no-scrollbar">
+                    <button onclick="setTab('Penjualan')" id="tab-Penjualan" class="flex-1 px-2 py-2 text-xs font-bold rounded-xl transition-all shadow-sm bg-white text-red-600 whitespace-nowrap">Penjualan</button>
+                    <button onclick="setTab('Konsi')" id="tab-Konsi" class="flex-1 px-2 py-2 text-xs font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700 whitespace-nowrap">Konsi</button>
+                    <button onclick="setTab('Retur')" id="tab-Retur" class="flex-1 px-2 py-2 text-xs font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700 whitespace-nowrap">Retur</button>
+                    <button onclick="setTab('Stock Outlet')" id="tab-Stock Outlet" class="flex-1 px-2 py-2 text-xs font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700 whitespace-nowrap">Stock Outlet</button>
                 </div>
 
                 <!-- Area Scanner -->
@@ -199,10 +200,11 @@
                     <p class="text-sm text-gray-500 font-medium">Data barcode yang berhasil masuk database.</p>
                     
                     <!-- TAB UNTUK HISTORY -->
-                    <div class="bg-gray-100 p-1 rounded-2xl flex mt-4 shadow-inner">
-                        <button onclick="setHistoryTab('Penjualan')" id="hist-tab-Penjualan" class="flex-1 py-2 text-xs font-bold rounded-xl transition-all shadow-sm bg-white text-red-600">Penjualan</button>
-                        <button onclick="setHistoryTab('Konsi')" id="hist-tab-Konsi" class="flex-1 py-2 text-xs font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700">Konsi</button>
-                        <button onclick="setHistoryTab('Retur')" id="hist-tab-Retur" class="flex-1 py-2 text-xs font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700">Retur</button>
+                    <div class="bg-gray-100 p-1 rounded-2xl flex mt-4 shadow-inner overflow-x-auto no-scrollbar">
+                        <button onclick="setHistoryTab('Penjualan')" id="hist-tab-Penjualan" class="flex-1 px-2 py-2 text-[11px] font-bold rounded-xl transition-all shadow-sm bg-white text-red-600 whitespace-nowrap">Penjualan</button>
+                        <button onclick="setHistoryTab('Konsi')" id="hist-tab-Konsi" class="flex-1 px-2 py-2 text-[11px] font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700 whitespace-nowrap">Konsi</button>
+                        <button onclick="setHistoryTab('Retur')" id="hist-tab-Retur" class="flex-1 px-2 py-2 text-[11px] font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700 whitespace-nowrap">Retur</button>
+                        <button onclick="setHistoryTab('Stock Outlet')" id="hist-tab-Stock Outlet" class="flex-1 px-2 py-2 text-[11px] font-bold rounded-xl transition-all text-gray-500 hover:text-gray-700 whitespace-nowrap">Stock Outlet</button>
                     </div>
                 </div>
                 
@@ -517,19 +519,23 @@
         // ================= TAB MANAGEMENT =================
         function setTab(tabName) {
             currentTab = tabName;
-            ['Penjualan', 'Konsi', 'Retur'].forEach(tab => {
+            ['Penjualan', 'Konsi', 'Retur', 'Stock Outlet'].forEach(tab => {
                 const el = document.getElementById(`tab-${tab}`);
-                el.classList.remove('bg-white', 'text-red-600', 'shadow-sm');
-                el.classList.add('text-gray-500');
+                if (el) {
+                    el.classList.remove('bg-white', 'text-red-600', 'shadow-sm');
+                    el.classList.add('text-gray-500');
+                }
             });
             const activeEl = document.getElementById(`tab-${tabName}`);
-            activeEl.classList.remove('text-gray-500');
-            activeEl.classList.add('bg-white', 'text-red-600', 'shadow-sm');
+            if (activeEl) {
+                activeEl.classList.remove('text-gray-500');
+                activeEl.classList.add('bg-white', 'text-red-600', 'shadow-sm');
+            }
         }
 
         function setHistoryTab(tabName) {
             currentHistoryTab = tabName;
-            ['Penjualan', 'Konsi', 'Retur'].forEach(tab => {
+            ['Penjualan', 'Konsi', 'Retur', 'Stock Outlet'].forEach(tab => {
                 const el = document.getElementById(`hist-tab-${tab}`);
                 if (el) {
                     el.classList.remove('bg-white', 'text-red-600', 'shadow-sm');
@@ -689,7 +695,8 @@
 
             scannedData.forEach(item => {
                 let badgeColor = item.tipe === 'Penjualan' ? 'bg-red-100 text-red-700' : 
-                                 item.tipe === 'Konsi' ? 'bg-orange-100 text-orange-700' : 'bg-gray-800 text-white';
+                                 item.tipe === 'Konsi' ? 'bg-orange-100 text-orange-700' : 
+                                 item.tipe === 'Stock Outlet' ? 'bg-blue-100 text-blue-700' : 'bg-gray-800 text-white';
 
                 const card = document.createElement('div');
                 card.className = "bg-white p-4 rounded-2xl border-2 border-gray-100 shadow-sm flex justify-between items-center fade-in hover:border-red-200 transition-colors";
