@@ -158,12 +158,23 @@
                         <button onclick="toggleCamera()" id="btnCameraToggle" class="text-xs font-extrabold px-4 py-2 rounded-xl transition-all shadow-sm bg-rose-100 text-rose-600 hover:bg-rose-200 active:scale-95">Stop Kamera</button>
                     </div>
                     
-                    <!-- Input Manual Barcode -->
-                    <div class="mt-3 px-1 flex items-center gap-2">
-                        <input type="text" inputmode="numeric" id="manualBarcodeInput" onkeypress="handleManualInput(event)" class="bg-gray-50 border-2 border-gray-100 text-gray-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input manual barcode...">
-                        <button onclick="addManualBarcode()" class="bg-red-600 text-white p-2.5 rounded-xl hover:bg-red-700 active:scale-95 transition-all shadow-[0_4px_10px_-2px_rgba(225,29,72,0.4)] shrink-0">
-                            <i data-lucide="plus" class="w-5 h-5"></i>
-                        </button>
+                    <!-- Input Manual Barcode (Mendukung Range) -->
+                    <div class="mt-3 px-1 flex flex-col gap-2">
+                        <div class="flex items-center gap-2">
+                            <input type="text" inputmode="numeric" id="manualBarcodeInput" onkeypress="handleManualInput(event)" class="bg-gray-50 border-2 border-gray-100 text-gray-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input manual barcode...">
+                            <button onclick="toggleRangeInput()" id="btnToggleRange" class="bg-gray-100 text-gray-500 p-2.5 rounded-xl hover:bg-gray-200 active:scale-95 transition-all shadow-sm shrink-0" title="Mode Range Barcode">
+                                <i data-lucide="list-plus" class="w-5 h-5"></i>
+                            </button>
+                            <button onclick="addManualBarcode()" class="bg-red-600 text-white p-2.5 rounded-xl hover:bg-red-700 active:scale-95 transition-all shadow-[0_4px_10px_-2px_rgba(225,29,72,0.4)] shrink-0">
+                                <i data-lucide="plus" class="w-5 h-5"></i>
+                            </button>
+                        </div>
+                        
+                        <!-- Input Range Akhir (Tersembunyi secara default) -->
+                        <div id="rangeInputContainer" class="hidden flex items-center gap-2 fade-in">
+                            <div class="bg-rose-50 border border-rose-100 px-3 py-2.5 rounded-xl text-red-500 font-bold text-sm shrink-0">s/d</div>
+                            <input type="text" inputmode="numeric" id="manualBarcodeEndInput" onkeypress="handleManualInput(event)" class="bg-rose-50 border-2 border-rose-100 text-red-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input barcode nomor akhir...">
+                        </div>
                     </div>
                 </div>
 
@@ -550,6 +561,24 @@
             renderHistoryList(); // Render ulang daftar history sesuai tab yang aktif
         }
 
+        function toggleRangeInput() {
+            const container = document.getElementById('rangeInputContainer');
+            const btn = document.getElementById('btnToggleRange');
+            
+            if (container.classList.contains('hidden')) {
+                container.classList.remove('hidden');
+                btn.classList.replace('bg-gray-100', 'bg-red-100');
+                btn.classList.replace('text-gray-500', 'text-red-600');
+                document.getElementById('manualBarcodeInput').placeholder = "Input barcode awal...";
+            } else {
+                container.classList.add('hidden');
+                btn.classList.replace('bg-red-100', 'bg-gray-100');
+                btn.classList.replace('text-red-600', 'text-gray-500');
+                document.getElementById('manualBarcodeEndInput').value = '';
+                document.getElementById('manualBarcodeInput').placeholder = "Input manual barcode...";
+            }
+        }
+
         // ================= SCANNER LOGIC =================
         function initScanner() {
             if (!html5QrCode) {
@@ -597,8 +626,9 @@
         let lastScanTime = 0;
         let lastScanValue = "";
 
-        // Fungsi inti pemrosesan barcode (Dipakai oleh kamera dan input manual)
-        function processBarcode(decodedText) {
+        // Fungsi inti pemrosesan barcode
+        // isBatch digunakan untuk menonaktifkan notifikasi visual saat memproses range
+        function processBarcode(decodedText, isBatch = false) {
             let cleanText = decodedText.trim();
 
             if (cleanText.length > 11) {
@@ -606,29 +636,36 @@
             }
 
             if (scannedBarcodesDB.has(cleanText)) {
-                if (navigator.vibrate) navigator.vibrate([100, 100, 100]); 
-                showToast(`Msisdn sudah ada`, 'error');
+                if (!isBatch) {
+                    if (navigator.vibrate) navigator.vibrate([100, 100, 100]); 
+                    showToast(`Msisdn sudah ada`, 'error');
+                }
                 return false; // Gagal karena duplikat
             }
 
             const alreadyInCart = scannedData.some(item => item.barcode === cleanText);
             if (alreadyInCart) {
-                if (navigator.vibrate) navigator.vibrate([100, 100, 100]); 
-                showToast(`Msisdn sudah ada`, 'error');
+                if (!isBatch) {
+                    if (navigator.vibrate) navigator.vibrate([100, 100, 100]); 
+                    showToast(`Msisdn sudah ada`, 'error');
+                }
                 return false; // Gagal karena ada di keranjang
             }
 
-            if (navigator.vibrate) navigator.vibrate(200);
+            if (!isBatch && navigator.vibrate) navigator.vibrate(200);
 
             scannedData.unshift({
-                id: Date.now().toString(),
+                // Gunakan ID yang lebih unik agar tidak bentrok saat proses looping range instan
+                id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
                 barcode: cleanText,
                 tipe: currentTab,
                 timestamp: new Date()
             });
 
-            showToast(`Berhasil: ${cleanText}`, 'success');
-            renderScannedList();
+            if (!isBatch) {
+                showToast(`Berhasil: ${cleanText}`, 'success');
+                renderScannedList();
+            }
             return true; // Berhasil masuk
         }
 
@@ -641,23 +678,76 @@
             lastScanTime = now;
             lastScanValue = decodedText; 
 
-            processBarcode(decodedText);
+            processBarcode(decodedText, false);
         }
 
         function onScanFailure(error) { /* Ignore */ }
 
-        // Pemicu dari Input Manual
+        // Pemicu dari Input Manual (Single & Range)
         function addManualBarcode() {
-            const inputEl = document.getElementById('manualBarcodeInput');
-            const val = inputEl.value;
+            const startInput = document.getElementById('manualBarcodeInput');
+            const endInput = document.getElementById('manualBarcodeEndInput');
+            const rangeContainer = document.getElementById('rangeInputContainer');
             
-            if (val) {
-                const success = processBarcode(val);
-                if (success) {
-                    inputEl.value = ''; // Kosongkan input setelah berhasil masuk
-                }
-            } else {
+            const startVal = startInput.value.trim();
+            const endVal = endInput.value.trim();
+            const isRange = !rangeContainer.classList.contains('hidden');
+
+            if (!startVal) {
                 showToast('Masukkan barcode terlebih dahulu!', 'error');
+                return;
+            }
+
+            if (isRange && endVal) {
+                // ========== PROSES RANGE BARCODE ==========
+                if (isNaN(startVal) || isNaN(endVal)) {
+                    showToast('Range harus berupa angka!', 'error');
+                    return;
+                }
+
+                // Menggunakan BigInt karena panjang barcode bisa melebihi batas aman Number di JavaScript
+                const startNum = BigInt(startVal);
+                const endNum = BigInt(endVal);
+                
+                if (startNum > endNum) {
+                    showToast('Nomor awal harus lebih kecil!', 'error');
+                    return;
+                }
+                
+                // Batasi pemrosesan maksimal 100 data untuk menghindari browser ngehang
+                if (endNum - startNum > 100n) {
+                    showToast('Maksimal generate 100 barcode sekaligus!', 'error');
+                    return;
+                }
+
+                let successCount = 0;
+                let failCount = 0;
+                const originalLength = startVal.length; // Simpan panjang digit awal untuk angka nol di depan
+
+                for (let i = startNum; i <= endNum; i++) {
+                    // Kembalikan ke format string dan pertahankan angka 0 di depannya
+                    let currentStr = i.toString().padStart(originalLength, '0');
+                    const success = processBarcode(currentStr, true); // true = mode Batch/Diam (tanpa alert visual per item)
+                    if (success) successCount++;
+                    else failCount++;
+                }
+
+                if (successCount > 0) {
+                    showToast(`Berhasil menambahkan ${successCount} barcode.` + (failCount > 0 ? ` (${failCount} dilewati)` : ''), 'success');
+                    startInput.value = '';
+                    endInput.value = '';
+                    renderScannedList();
+                    if (navigator.vibrate) navigator.vibrate(200);
+                } else {
+                    showToast(`Gagal menambahkan range (semua duplikat/sudah ada).`, 'error');
+                }
+
+            } else {
+                // ========== PROSES SINGLE BARCODE ==========
+                const success = processBarcode(startVal, false);
+                if (success) {
+                    startInput.value = ''; 
+                }
             }
         }
 
@@ -666,6 +756,7 @@
             if (e.key === 'Enter') {
                 addManualBarcode();
                 document.getElementById('manualBarcodeInput').blur(); // Tutup keyboard HP
+                document.getElementById('manualBarcodeEndInput').blur();
             }
         }
 
