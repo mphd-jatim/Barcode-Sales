@@ -263,6 +263,7 @@
         
         let html5QrCode;
         let isCameraRunning = false;
+        let isCameraTransitioning = false; // Mencegah transisi kamera tumpang tindih
 
         // Initialize icons
         lucide.createIcons();
@@ -461,7 +462,7 @@
             setTab('Penjualan');
             switchView('scanner');
             
-            setTimeout(() => { initScanner(); }, 300);
+            setTimeout(async () => { await initScanner(); }, 300);
         }
 
         function openHistory() {
@@ -470,7 +471,7 @@
             switchView('history');
         }
 
-        function goBack() {
+        async function goBack() {
             if (currentView === 'history') {
                 switchView(previousView);
             } else if (currentView === 'outlets') {
@@ -484,7 +485,7 @@
                     const confirmBack = confirm("Ada data yang belum di-submit. Yakin ingin kembali? Data scan akan hilang.");
                     if(!confirmBack) return;
                 }
-                stopScanner();
+                await stopScanner(); // Menunggu kamera benar-benar berhenti sebelum pindah
                 selectedOutlet = null;
                 switchView('outlets');
             }
@@ -579,55 +580,88 @@
             }
         }
 
-        // ================= SCANNER LOGIC =================
-        function initScanner() {
-            if (!html5QrCode) {
-                html5QrCode = new Html5Qrcode("reader");
-            }
-            
-            const boxSize = Math.min(window.innerWidth * 0.7, 250);
-            
-            const config = { 
-                fps: 30, 
-                qrbox: { width: boxSize, height: boxSize }, 
-                experimentalFeatures: {
-                    useBarCodeDetectorIfSupported: true 
+        // ================= SCANNER LOGIC (ASYNC/AWAIT DENGAN LOCK) =================
+        async function initScanner() {
+            // Mencegah panggilan ganda saat masih transisi loading
+            if (isCameraTransitioning || isCameraRunning) return;
+            isCameraTransitioning = true;
+
+            try {
+                if (!html5QrCode) {
+                    const formatsToSupport = [
+                        Html5QrcodeSupportedFormats.QR_CODE,
+                        Html5QrcodeSupportedFormats.CODE_128,
+                        Html5QrcodeSupportedFormats.EAN_13,
+                        Html5QrcodeSupportedFormats.CODE_39
+                    ];
+                    html5QrCode = new Html5Qrcode("reader", { formatsToSupport: formatsToSupport });
                 }
-            };
-            
-            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure)
-                .then(() => {
-                    isCameraRunning = true;
-                    document.getElementById('btnCameraToggle').innerText = "Stop Kamera";
-                    document.getElementById('btnCameraToggle').classList.replace('bg-green-100', 'bg-rose-100');
-                    document.getElementById('btnCameraToggle').classList.replace('text-green-600', 'text-rose-600');
-                })
-                .catch((err) => {
-                    showToast("Gagal mengakses kamera. Pastikan izin diberikan.", "error");
-                    console.log(err);
-                });
-        }
-
-        function stopScanner() {
-            if (html5QrCode && isCameraRunning) {
-                html5QrCode.stop().then(() => {
-                    isCameraRunning = false;
-                    document.getElementById('btnCameraToggle').innerText = "Mulai Kamera";
-                    document.getElementById('btnCameraToggle').classList.replace('bg-rose-100', 'bg-green-100');
-                    document.getElementById('btnCameraToggle').classList.replace('text-rose-600', 'text-green-600');
-                }).catch(err => console.log(err));
+                
+                const boxSize = Math.min(window.innerWidth * 0.7, 250); 
+                
+                const config = { 
+                    fps: 30, 
+                    qrbox: { width: boxSize, height: boxSize }, 
+                    aspectRatio: 1.0, 
+                    experimentalFeatures: {
+                        useBarCodeDetectorIfSupported: true 
+                    }
+                };
+                
+                await html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess, onScanFailure);
+                isCameraRunning = true;
+                
+                const btnCameraToggle = document.getElementById('btnCameraToggle');
+                if (btnCameraToggle) {
+                    btnCameraToggle.innerText = "Stop Kamera";
+                    btnCameraToggle.classList.replace('bg-green-100', 'bg-rose-100');
+                    btnCameraToggle.classList.replace('text-green-600', 'text-rose-600');
+                }
+            } catch (err) {
+                console.error("Error starting scanner:", err);
+                showToast("Gagal mengakses kamera. Pastikan izin diberikan.", "error");
+            } finally {
+                isCameraTransitioning = false;
             }
         }
 
-        function toggleCamera() {
-            if (isCameraRunning) { stopScanner(); } else { initScanner(); }
+        async function stopScanner() {
+            // Mencegah panggilan ganda saat masih transisi mematikan kamera
+            if (isCameraTransitioning || !html5QrCode || !isCameraRunning) return;
+            isCameraTransitioning = true;
+            
+            try {
+                await html5QrCode.stop();
+                isCameraRunning = false;
+                
+                const btnCameraToggle = document.getElementById('btnCameraToggle');
+                if (btnCameraToggle) {
+                    btnCameraToggle.innerText = "Mulai Kamera";
+                    btnCameraToggle.classList.replace('bg-rose-100', 'bg-green-100');
+                    btnCameraToggle.classList.replace('text-rose-600', 'text-green-600');
+                }
+            } catch (err) {
+                console.error("Error stopping scanner:", err);
+            } finally {
+                isCameraTransitioning = false;
+            }
+        }
+
+        async function toggleCamera() {
+            // Abaikan jika sedang proses menyalakan/mematikan
+            if (isCameraTransitioning) return;
+            
+            if (isCameraRunning) { 
+                await stopScanner(); 
+            } else { 
+                await initScanner(); 
+            }
         }
 
         let lastScanTime = 0;
         let lastScanValue = "";
 
         // Fungsi inti pemrosesan barcode
-        // isBatch digunakan untuk menonaktifkan notifikasi visual saat memproses range
         function processBarcode(decodedText, isBatch = false) {
             let cleanText = decodedText.trim();
 
@@ -640,7 +674,7 @@
                     if (navigator.vibrate) navigator.vibrate([100, 100, 100]); 
                     showToast(`Msisdn sudah ada`, 'error');
                 }
-                return false; // Gagal karena duplikat
+                return false; 
             }
 
             const alreadyInCart = scannedData.some(item => item.barcode === cleanText);
@@ -649,13 +683,12 @@
                     if (navigator.vibrate) navigator.vibrate([100, 100, 100]); 
                     showToast(`Msisdn sudah ada`, 'error');
                 }
-                return false; // Gagal karena ada di keranjang
+                return false; 
             }
 
             if (!isBatch && navigator.vibrate) navigator.vibrate(200);
 
             scannedData.unshift({
-                // Gunakan ID yang lebih unik agar tidak bentrok saat proses looping range instan
                 id: Date.now().toString() + Math.random().toString(36).substring(2, 5),
                 barcode: cleanText,
                 tipe: currentTab,
@@ -666,13 +699,12 @@
                 showToast(`Berhasil: ${cleanText}`, 'success');
                 renderScannedList();
             }
-            return true; // Berhasil masuk
+            return true; 
         }
 
         // Pemicu dari Kamera
         function onScanSuccess(decodedText, decodedResult) {
             const now = Date.now();
-            // Jeda 3 detik agar kamera tidak scan berkali-kali untuk barcode yang sama (bouncing)
             if (decodedText === lastScanValue && (now - lastScanTime) < 3000) return; 
 
             lastScanTime = now;
@@ -699,13 +731,11 @@
             }
 
             if (isRange && endVal) {
-                // ========== PROSES RANGE BARCODE ==========
                 if (isNaN(startVal) || isNaN(endVal)) {
                     showToast('Range harus berupa angka!', 'error');
                     return;
                 }
 
-                // Menggunakan BigInt karena panjang barcode bisa melebihi batas aman Number di JavaScript
                 const startNum = BigInt(startVal);
                 const endNum = BigInt(endVal);
                 
@@ -714,7 +744,6 @@
                     return;
                 }
                 
-                // Batasi pemrosesan maksimal 100 data untuk menghindari browser ngehang
                 if (endNum - startNum > 100n) {
                     showToast('Maksimal generate 100 barcode sekaligus!', 'error');
                     return;
@@ -722,12 +751,11 @@
 
                 let successCount = 0;
                 let failCount = 0;
-                const originalLength = startVal.length; // Simpan panjang digit awal untuk angka nol di depan
+                const originalLength = startVal.length; 
 
                 for (let i = startNum; i <= endNum; i++) {
-                    // Kembalikan ke format string dan pertahankan angka 0 di depannya
                     let currentStr = i.toString().padStart(originalLength, '0');
-                    const success = processBarcode(currentStr, true); // true = mode Batch/Diam (tanpa alert visual per item)
+                    const success = processBarcode(currentStr, true); 
                     if (success) successCount++;
                     else failCount++;
                 }
@@ -743,7 +771,6 @@
                 }
 
             } else {
-                // ========== PROSES SINGLE BARCODE ==========
                 const success = processBarcode(startVal, false);
                 if (success) {
                     startInput.value = ''; 
@@ -751,11 +778,10 @@
             }
         }
 
-        // Menangkap tombol Enter di keyboard HP
         function handleManualInput(e) {
             if (e.key === 'Enter') {
                 addManualBarcode();
-                document.getElementById('manualBarcodeInput').blur(); // Tutup keyboard HP
+                document.getElementById('manualBarcodeInput').blur(); 
                 document.getElementById('manualBarcodeEndInput').blur();
             }
         }
@@ -819,13 +845,11 @@
         function renderHistoryList() {
             const container = document.getElementById('historyListContainer');
             
-            // 1. Fungsi ambil nilai fleksibel
             const getV = (row, keyMatch) => {
                 const found = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === keyMatch);
                 return found ? row[found] : '';
             };
 
-            // 2. Filter history berdasarkan tab tipe transaksi aktif
             const filteredData = dbHistoryData.filter(row => {
                 const tipe = String(getV(row, 'tipetransaksi') || '').toLowerCase();
                 return tipe === currentHistoryTab.toLowerCase();
@@ -844,14 +868,12 @@
                 return;
             }
 
-            // 3. Grouping Data by Date -> Outlet
             const groupedHist = {};
             
             filteredData.forEach(row => {
                 const outletName = String(getV(row, 'namaoutlet') || 'Outlet Tidak Diketahui').trim();
                 let rawTime = getV(row, 'waktuscanhp') || getV(row, 'timestampserver') || '';
                 
-                // Ambil tanggal saja untuk grouping
                 let dateKey = 'Tanggal Tidak Diketahui';
                 if(rawTime) {
                     try {
@@ -869,15 +891,12 @@
 
             container.innerHTML = '';
 
-            // 4. Render UI
-            // Sort Dates (Terbaru di atas)
             const sortedDates = Object.keys(groupedHist).sort((a,b) => new Date(b) - new Date(a));
 
             sortedDates.forEach(dateStr => {
                 const dateBlock = document.createElement('div');
                 dateBlock.className = "mb-6 fade-in";
                 
-                // Header Tanggal
                 let html = `
                     <div class="flex items-center gap-2 mb-3">
                         <div class="bg-red-500 w-1.5 h-4 rounded-full"></div>
@@ -887,11 +906,9 @@
 
                 const outletsObj = groupedHist[dateStr];
                 
-                // Render per Outlet di bawah tanggal tersebut
                 for (const [outlet, items] of Object.entries(outletsObj)) {
                     html += `
                         <div class="bg-white border-2 border-gray-100 rounded-2xl overflow-hidden shadow-sm mb-4">
-                            <!-- Header Outlet -->
                             <div class="bg-rose-50/50 px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
                                 <div class="flex items-center gap-2">
                                     <i data-lucide="store" class="w-4 h-4 text-red-500"></i>
@@ -900,12 +917,10 @@
                                 <span class="text-[10px] bg-white border border-gray-200 px-2 py-0.5 rounded-md font-bold text-gray-500 shadow-sm">${items.length} Item</span>
                             </div>
                             
-                            <!-- Daftar Item dalam Grid 2 Kolom -->
                             <div class="p-3">
                                 <div class="grid grid-cols-2 gap-2">
                     `;
                     
-                    // Sort items by time (Terbaru di atas)
                     items.reverse(); 
 
                     items.forEach(item => {
@@ -913,8 +928,8 @@
                         if (barcode.length > 11) barcode = barcode.slice(-11);
 
                         let time = getV(item, 'waktuscanhp') || '';
-                        if(time && String(time).includes(' ')) time = String(time).split(' ')[1]; // Ambil jam saja
-                        if(time.length > 5) time = time.slice(0, 5); // Format ringkas HH:MM
+                        if(time && String(time).includes(' ')) time = String(time).split(' ')[1]; 
+                        if(time.length > 5) time = time.slice(0, 5); 
 
                         html += `
                                     <div class="flex flex-col bg-gray-50 p-2 rounded-xl border border-gray-100 items-center justify-center text-center">
@@ -945,6 +960,9 @@
                 return;
             }
 
+            const btnSubmit = document.getElementById('btnSubmitData');
+            btnSubmit.disabled = true;
+
             const payload = scannedData.map(item => ({
                 id_sales: selectedSales.id,
                 nama_sales: selectedSales.name,
@@ -955,7 +973,9 @@
                 scan_time: item.timestamp.toISOString() 
             }));
 
-            stopScanner();
+            // Pastikan kamera benar-benar berhenti sebelum menampilkan loading layar penuh
+            await stopScanner();
+            
             const overlay = document.getElementById('loadingOverlay');
             document.getElementById('loadingText').innerText = "Menyimpan ke Database...";
             overlay.classList.remove('hidden');
@@ -986,13 +1006,15 @@
 
                     scannedData = [];
                     renderScannedList();
-                    initScanner();
+                    // Nyalakan ulang kamera jika proses simpan sukses
+                    await initScanner();
                 } else {
                     throw new Error(result.message || "Gagal menyimpan");
                 }
             } catch (error) {
                 showToast("Terjadi kesalahan jaringan/server.", "error");
                 console.error(error);
+                btnSubmit.disabled = false;
             } finally {
                 overlay.classList.add('hidden');
                 overlay.classList.remove('flex');
