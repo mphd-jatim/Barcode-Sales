@@ -158,7 +158,7 @@
                         <button onclick="toggleCamera()" id="btnCameraToggle" class="text-xs font-extrabold px-4 py-2 rounded-xl transition-all shadow-sm bg-rose-100 text-rose-600 hover:bg-rose-200 active:scale-95">Stop Kamera</button>
                     </div>
                     
-                    <!-- Input Manual Barcode (Mendukung Range) -->
+                    <!-- Input Manual Barcode -->
                     <div class="mt-3 px-1 flex flex-col gap-2">
                         <div class="flex items-center gap-2">
                             <input type="text" inputmode="numeric" id="manualBarcodeInput" onkeypress="handleManualInput(event)" class="bg-gray-50 border-2 border-gray-100 text-gray-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input Msisdn manual...">
@@ -170,7 +170,6 @@
                             </button>
                         </div>
                         
-                        <!-- Input Range Akhir (Tersembunyi secara default) -->
                         <div id="rangeInputContainer" class="hidden flex items-center gap-2 fade-in">
                             <div class="bg-rose-50 border border-rose-100 px-3 py-2.5 rounded-xl text-red-500 font-bold text-sm shrink-0">s/d</div>
                             <input type="text" inputmode="numeric" id="manualBarcodeEndInput" onkeypress="handleManualInput(event)" class="bg-rose-50 border-2 border-rose-100 text-red-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input Msisdn akhir...">
@@ -178,7 +177,7 @@
                     </div>
                 </div>
 
-                <!-- Hasil Scan (Cards) -->
+                <!-- Hasil Scan -->
                 <div class="flex-1 overflow-y-auto no-scrollbar px-4 pt-2 bg-gray-50/50">
                     <div class="flex justify-between items-center mb-3">
                         <h3 class="text-sm font-extrabold text-gray-900">Daftar Scan <span class="bg-red-100 text-red-600 px-2.5 py-0.5 rounded-full ml-1" id="scanCount">0</span></h3>
@@ -207,8 +206,15 @@
             <!-- ================= VIEW 4: HISTORY SCAN ================= -->
             <div id="view-history" class="fade-in hidden flex flex-col h-full bg-gray-50/50">
                 <div class="p-4 shrink-0 bg-white border-b border-gray-100 shadow-sm z-10">
-                    <h2 class="text-xl font-extrabold text-gray-900">Riwayat Scan 🗃️</h2>
-                    <p class="text-sm text-gray-500 font-medium">Data barcode yang berhasil masuk database.</p>
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h2 class="text-xl font-extrabold text-gray-900">Riwayat Scan Pribadi 🗃️</h2>
+                            <p class="text-sm text-gray-500 font-medium">Hanya menampilkan scan oleh: <span id="histSalesName" class="font-bold text-red-500"></span></p>
+                        </div>
+                        <div id="syncIndicator" class="hidden flex items-center gap-1.5 text-xs font-bold text-green-600 bg-green-50 px-2 py-1 rounded-full shadow-inner border border-green-100">
+                            <i data-lucide="refresh-cw" class="w-3 h-3 animate-spin"></i> Syncing
+                        </div>
+                    </div>
                     
                     <!-- TAB UNTUK HISTORY -->
                     <div class="bg-gray-100 p-1 rounded-2xl flex mt-4 shadow-inner overflow-x-auto no-scrollbar">
@@ -245,27 +251,35 @@
 
     <script>
         // SETUP URL GOOGLE APPS SCRIPT
-        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbwdeucA8Zj24zh1HHMEGytnkdy1xb-OfwtPyHgCvCAzQLzgQwjFrD1bLv-QU6i3FDMQ/exec";
+        const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzCSx424He8UzDIcdVP696cRurVlrWGuL8fR8GwAt49ZgYR16SWfqQbGmlE9qtP9rox/exec";
+
+        // ================= HELPER FUNCTION GLOBAL =================
+        const getV = (row, keyMatch) => {
+            if(!row) return '';
+            const found = Object.keys(row).find(k => String(k).toLowerCase().replace(/[^a-z0-9]/g, '') === keyMatch);
+            return found ? row[found] : '';
+        };
 
         // ================= STATE MANAGEMENT =================
         let dataMaster = []; 
-        let currentView = 'sales'; // 'sales', 'outlets', 'scanner', 'history'
-        let previousView = 'sales'; // Untuk tracking tombol back dari history
+        let currentView = 'sales'; 
+        let previousView = 'sales'; 
         let selectedSales = null;
         let selectedOutlet = null;
         let currentTab = 'Penjualan'; 
-        let currentHistoryTab = 'Penjualan'; // Tab default untuk History
+        let currentHistoryTab = 'Penjualan'; 
         let scannedData = []; 
         
-        // State untuk pengecekan duplikat dan histori
-        let dbHistoryData = []; // Menyimpan semua data mentah dari DB
-        let scannedBarcodesDB = new Set(); // Set berisi barcode (string) agar cek duplikat secepat kilat
+        let dbHistoryData = []; // Hanya menyimpan histori Sales yang login
+        let scannedBarcodesDB = new Set(); // Global array barcode (sangat ringan) untuk pencegah duplikat
         
         let html5QrCode;
         let isCameraRunning = false;
-        let isCameraTransitioning = false; // Mencegah transisi kamera tumpang tindih
+        let isCameraTransitioning = false; 
 
-        // Initialize icons
+        let currentHistoryLimit = 20; // Render awal diturunkan jadi 20 data agar makin enteng
+        let historyObserver = null;
+
         lucide.createIcons();
 
         // ================= INISIALISASI & RENDERING =================
@@ -273,85 +287,87 @@
             fetchInitialData();
         };
 
-        // Fungsi gabungan untuk mengambil Master Outlet dan History
         async function fetchInitialData() {
             const overlay = document.getElementById('loadingOverlay');
             const loadingText = document.getElementById('loadingText');
             
-            loadingText.innerText = "Mengambil data server...";
+            loadingText.innerText = "Memeriksa data...";
             overlay.classList.remove('hidden');
             overlay.classList.add('flex');
 
             try {
-                // Fetch Outlet Master Data
+                // 1. Tarik Data Outlet
                 const resOutlet = await fetch(SCRIPT_URL + "?action=getOutlet");
                 const resultOutlet = await resOutlet.json();
-
                 if (resultOutlet.status === 'success') {
                     processOutletData(resultOutlet.data);
-                } else {
-                    throw new Error("Gagal memuat outlet");
                 }
 
-                // Fetch History Data (Untuk cek duplikat & menu histori)
+                // 2. Trik Baru: Hanya Tarik Daftar Barcode (Global) untuk cek duplikat tanpa menarik semua data detail yang berat
                 try {
-                    const resHistory = await fetch(SCRIPT_URL + "?action=getHistory");
-                    const resultHistory = await resHistory.json();
-                    
-                    if (resultHistory.status === 'success') {
-                        dbHistoryData = resultHistory.data;
-                        dbHistoryData.forEach(row => {
-                            let cleanBarcode = String(row.barcode || row.Barcode || '').replace(/^'/, '').trim();
-                            if (cleanBarcode.length > 11) {
-                                cleanBarcode = cleanBarcode.slice(-11);
-                            }
+                    const resBarcodes = await fetch(SCRIPT_URL + "?action=getBarcodes");
+                    const resultBarcodes = await resBarcodes.json();
+                    if (resultBarcodes.status === 'success') {
+                        scannedBarcodesDB.clear();
+                        resultBarcodes.data.forEach(b => {
+                            let cleanBarcode = String(b).replace(/^'/, '').trim();
+                            if (cleanBarcode.length > 11) cleanBarcode = cleanBarcode.slice(-11);
                             if(cleanBarcode) scannedBarcodesDB.add(cleanBarcode);
                         });
                     }
-                } catch (e) {
-                    console.log("Histori gagal ditarik, tapi aplikasi tetap jalan.", e);
-                }
+                } catch (e) { console.log("Gagal tarik global barcodes", e); }
 
-                // Cek LocalStorage untuk auto-login
                 checkAutoLogin();
 
             } catch (error) {
-                console.error("Error fetching data:", error);
                 showToast("Terjadi kesalahan jaringan.", "error");
-                document.getElementById('salesListContainer').innerHTML = `<p class="text-center text-red-500 text-sm mt-4 font-bold">Koneksi terputus. Pastikan internet aktif.</p>`;
             } finally {
                 overlay.classList.add('hidden');
                 overlay.classList.remove('flex');
             }
         }
 
+        // Fungsi baru: Khusus menarik History Detail milik Sales tertentu dari server
+        async function fetchHistoryForSales(salesName, showIndicator = false) {
+            if (!salesName) return;
+            const syncIcon = document.getElementById('syncIndicator');
+            if (showIndicator && syncIcon) syncIcon.classList.remove('hidden');
+
+            try {
+                // Mengirim parameter salesName ke server
+                const url = SCRIPT_URL + "?action=getHistory&salesName=" + encodeURIComponent(salesName);
+                const res = await fetch(url);
+                const result = await res.json();
+                
+                if (result.status === 'success') {
+                    // dbHistoryData sekarang HANYA berisi data Sales yang bersangkutan! (Sangat Ringan)
+                    dbHistoryData = result.data; 
+                    if (currentView === 'history') {
+                        renderHistoryList();
+                    }
+                }
+            } catch (e) {
+                console.log("Background sync gagal.", e);
+            } finally {
+                if (showIndicator && syncIcon) syncIcon.classList.add('hidden');
+            }
+        }
+
         function processOutletData(flatData) {
             const groupedData = {};
             flatData.forEach(row => {
-                const getVal = (keyMatch) => {
-                    const foundKey = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === keyMatch);
-                    return foundKey ? row[foundKey] : '';
-                };
-
-                let sId = String(getVal('idsales')).trim();
-                const sName = String(getVal('namasales')).trim();
-                let oId = String(getVal('idoutlet')).trim();
-                const oName = String(getVal('namaoutlet')).trim();
+                let sId = String(getV(row, 'idsales')).trim();
+                const sName = String(getV(row, 'namasales')).trim();
+                let oId = String(getV(row, 'idoutlet')).trim();
+                const oName = String(getV(row, 'namaoutlet')).trim();
 
                 if (!sId || sId === 'undefined' || sId === '') sId = sName;
                 if (!oId || oId === 'undefined' || oId === '') oId = oName;
-
                 if (!sName || sName === 'undefined' || sName === '') return;
 
-                if (!groupedData[sId]) {
-                    groupedData[sId] = { id: sId, name: sName, outlets: [] };
-                }
-                
-                if (oName && oName !== 'undefined' && oName !== '') {
-                    groupedData[sId].outlets.push({ id: oId, name: oName });
-                }
+                if (!groupedData[sId]) groupedData[sId] = { id: sId, name: sName, outlets: [] };
+                if (oName && oName !== 'undefined' && oName !== '') groupedData[sId].outlets.push({ id: oId, name: oName });
             });
-
             dataMaster = Object.values(groupedData);
         }
 
@@ -450,6 +466,11 @@
             document.getElementById('lblSelectedSales').innerText = sales.name;
             document.getElementById('lblScannerSales').innerText = sales.name;
             document.getElementById('searchOutlet').value = '';
+            document.getElementById('histSalesName').innerText = sales.name;
+
+            // Langsung tarik histori spesifik sales ini di latar belakang
+            fetchHistoryForSales(sales.name, false);
+
             renderOutletList(sales.outlets);
             switchView('outlets');
         }
@@ -467,8 +488,11 @@
 
         function openHistory() {
             previousView = currentView;
-            setHistoryTab('Penjualan'); // Reset ke tab penjualan setiap kali buka history
+            setHistoryTab('Penjualan'); 
             switchView('history');
+            if(selectedSales) {
+                fetchHistoryForSales(selectedSales.name, true);
+            }
         }
 
         async function goBack() {
@@ -477,6 +501,7 @@
             } else if (currentView === 'outlets') {
                 localStorage.removeItem('savedSalesId');
                 selectedSales = null;
+                dbHistoryData = []; // Bersihkan histori sales jika logout
                 document.getElementById('searchSales').value = '';
                 renderSalesList(dataMaster);
                 switchView('sales');
@@ -485,7 +510,7 @@
                     const confirmBack = confirm("Ada data yang belum di-submit. Yakin ingin kembali? Data scan akan hilang.");
                     if(!confirmBack) return;
                 }
-                await stopScanner(); // Menunggu kamera benar-benar berhenti sebelum pindah
+                await stopScanner(); 
                 selectedOutlet = null;
                 switchView('outlets');
             }
@@ -559,7 +584,9 @@
                 activeEl.classList.remove('text-gray-500');
                 activeEl.classList.add('bg-white', 'text-red-600', 'shadow-sm');
             }
-            renderHistoryList(); // Render ulang daftar history sesuai tab yang aktif
+            
+            currentHistoryLimit = 20; // Batas render diturunkan agar super ringan
+            renderHistoryList(); 
         }
 
         function toggleRangeInput() {
@@ -570,7 +597,7 @@
                 container.classList.remove('hidden');
                 btn.classList.replace('bg-gray-100', 'bg-red-100');
                 btn.classList.replace('text-gray-500', 'text-red-600');
-                document.getElementById('manualBarcodeInput').placeholder = "Input Msisdn Awal...";
+                document.getElementById('manualBarcodeInput').placeholder = "Input Msisdn awal...";
             } else {
                 container.classList.add('hidden');
                 btn.classList.replace('bg-red-100', 'bg-gray-100');
@@ -580,9 +607,8 @@
             }
         }
 
-        // ================= SCANNER LOGIC (ASYNC/AWAIT DENGAN LOCK) =================
+        // ================= SCANNER LOGIC =================
         async function initScanner() {
-            // Mencegah panggilan ganda saat masih transisi loading
             if (isCameraTransitioning || isCameraRunning) return;
             isCameraTransitioning = true;
 
@@ -626,7 +652,6 @@
         }
 
         async function stopScanner() {
-            // Mencegah panggilan ganda saat masih transisi mematikan kamera
             if (isCameraTransitioning || !html5QrCode || !isCameraRunning) return;
             isCameraTransitioning = true;
             
@@ -648,7 +673,6 @@
         }
 
         async function toggleCamera() {
-            // Abaikan jika sedang proses menyalakan/mematikan
             if (isCameraTransitioning) return;
             
             if (isCameraRunning) { 
@@ -661,7 +685,6 @@
         let lastScanTime = 0;
         let lastScanValue = "";
 
-        // Fungsi inti pemrosesan barcode
         function processBarcode(decodedText, isBatch = false) {
             let cleanText = decodedText.trim();
 
@@ -702,7 +725,6 @@
             return true; 
         }
 
-        // Pemicu dari Kamera
         function onScanSuccess(decodedText, decodedResult) {
             const now = Date.now();
             if (decodedText === lastScanValue && (now - lastScanTime) < 3000) return; 
@@ -715,7 +737,6 @@
 
         function onScanFailure(error) { /* Ignore */ }
 
-        // Pemicu dari Input Manual (Single & Range)
         function addManualBarcode() {
             const startInput = document.getElementById('manualBarcodeInput');
             const endInput = document.getElementById('manualBarcodeEndInput');
@@ -841,18 +862,21 @@
             renderScannedList();
         }
 
-        // ================= RENDER HISTORY LOGIC (DIPERBARUI) =================
+        // ================= RENDER HISTORY LOGIC (VIRTUAL PAGINATION) =================
         function renderHistoryList() {
             const container = document.getElementById('historyListContainer');
             
-            const getV = (row, keyMatch) => {
-                const found = Object.keys(row).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === keyMatch);
-                return found ? row[found] : '';
-            };
-
-            const filteredData = dbHistoryData.filter(row => {
+            // Filter HANYA berdasarkan tipe (karena dbHistoryData sudah difilter by salesName dari Server)
+            let filteredData = dbHistoryData.filter(row => {
                 const tipe = String(getV(row, 'tipetransaksi') || '').toLowerCase();
                 return tipe === currentHistoryTab.toLowerCase();
+            });
+
+            // Urutkan Terbaru
+            filteredData.sort((a,b) => {
+                let timeA = new Date(getV(a, 'timestamp') || getV(a, 'waktu') || getV(a, 'jam') || getV(a, 'waktuscanhp') || 0);
+                let timeB = new Date(getV(b, 'timestamp') || getV(b, 'waktu') || getV(b, 'jam') || getV(b, 'waktuscanhp') || 0);
+                return timeB - timeA;
             });
 
             if (!filteredData || filteredData.length === 0) {
@@ -868,11 +892,15 @@
                 return;
             }
 
+            // SLICE: Batasi render awal (Lazy Load hanya sesuai layar)
+            const hasMoreData = filteredData.length > currentHistoryLimit;
+            const dataToRender = filteredData.slice(0, currentHistoryLimit);
+
             const groupedHist = {};
             
-            filteredData.forEach(row => {
+            dataToRender.forEach(row => {
                 const outletName = String(getV(row, 'namaoutlet') || 'Outlet Tidak Diketahui').trim();
-                let rawTime = getV(row, 'waktuscanhp') || getV(row, 'timestampserver') || '';
+                let rawTime = getV(row, 'timestamp') || getV(row, 'waktu') || getV(row, 'jam') || getV(row, 'waktuscanhp') || '';
                 
                 let dateKey = 'Tanggal Tidak Diketahui';
                 if(rawTime) {
@@ -889,9 +917,9 @@
                 groupedHist[dateKey][outletName].push(row);
             });
 
-            container.innerHTML = '';
+            container.innerHTML = ''; 
 
-            const sortedDates = Object.keys(groupedHist).sort((a,b) => new Date(b) - new Date(a));
+            const sortedDates = Object.keys(groupedHist); 
 
             sortedDates.forEach(dateStr => {
                 const dateBlock = document.createElement('div');
@@ -908,33 +936,28 @@
                 
                 for (const [outlet, items] of Object.entries(outletsObj)) {
                     html += `
-                        <div class="bg-white border-2 border-gray-100 rounded-2xl overflow-hidden shadow-sm mb-4">
+                        <div class="bg-white border-2 border-gray-100 rounded-2xl overflow-hidden shadow-sm mb-4 history-card">
                             <div class="bg-rose-50/50 px-3 py-2.5 border-b border-gray-100 flex items-center justify-between">
                                 <div class="flex items-center gap-2">
                                     <i data-lucide="store" class="w-4 h-4 text-red-500"></i>
                                     <h4 class="font-bold text-gray-800 text-xs truncate max-w-[200px]">${outlet}</h4>
                                 </div>
-                                <span class="text-[10px] bg-white border border-gray-200 px-2 py-0.5 rounded-md font-bold text-gray-500 shadow-sm">${items.length} Item</span>
+                                <span class="text-[10px] bg-white border border-gray-200 px-2 py-0.5 rounded-md font-bold text-gray-500 shadow-sm">${items.length} Item (di Layar)</span>
                             </div>
                             
                             <div class="p-3">
                                 <div class="grid grid-cols-2 gap-2">
                     `;
-                    
-                    items.reverse(); 
 
                     items.forEach(item => {
-                        let barcode = String(getV(item, 'barcode')).replace(/^'/, '').trim();
-                        if (barcode.length > 11) barcode = barcode.slice(-11);
-
-                        let time = getV(item, 'waktuscanhp') || '';
-                        if(time && String(time).includes(' ')) time = String(time).split(' ')[1]; 
-                        if(time.length > 5) time = time.slice(0, 5); 
+                        let rawBarcode = getV(item, 'msisdn') || getV(item, 'itembarcode') || getV(item, 'barcode') || getV(item, 'sn') || '';
+                        let barcode = String(rawBarcode).replace(/^'/, '').trim();
+                        if (!barcode || barcode === 'undefined' || barcode === 'null') barcode = "-";
+                        else if (barcode.length > 11 && barcode !== "-") barcode = barcode.slice(-11);
 
                         html += `
-                                    <div class="flex flex-col bg-gray-50 p-2 rounded-xl border border-gray-100 items-center justify-center text-center">
+                                    <div class="flex flex-col bg-gray-50 p-2.5 rounded-xl border border-gray-100 items-center justify-center text-center">
                                         <span class="text-xs font-mono font-extrabold text-gray-900">${barcode}</span>
-                                        <span class="text-[9px] text-gray-400 font-medium mt-1 flex items-center gap-0.5"><i data-lucide="clock" class="w-2.5 h-2.5"></i> ${time}</span>
                                     </div>
                         `;
                     });
@@ -950,6 +973,25 @@
                 container.appendChild(dateBlock);
             });
             lucide.createIcons();
+
+            // OBSERVER: Auto muat saat scroll sampai bawah
+            if (historyObserver) historyObserver.disconnect();
+
+            if (hasMoreData) {
+                const loadMoreTrigger = document.createElement('div');
+                loadMoreTrigger.className = "py-6 flex justify-center items-center w-full";
+                loadMoreTrigger.innerHTML = `<div class="loader w-6 h-6 border-[3px] border-gray-200 border-t-red-500"></div>`;
+                container.appendChild(loadMoreTrigger);
+
+                historyObserver = new IntersectionObserver((entries) => {
+                    if(entries[0].isIntersecting) {
+                        currentHistoryLimit += 20; // Tambah 20 data baru tiap kali mentok bawah
+                        renderHistoryList(); 
+                    }
+                }, { threshold: 0.1 });
+                
+                historyObserver.observe(loadMoreTrigger);
+            }
         }
 
         // ================= SUBMIT KE DATABASE =================
@@ -969,11 +1011,10 @@
                 id_outlet: selectedOutlet.id,
                 nama_outlet: selectedOutlet.name,
                 tipe_transaksi: item.tipe,
-                barcode: item.barcode, 
-                scan_time: item.timestamp.toISOString() 
+                item_barcode: item.barcode, 
+                timestamp: item.timestamp.toISOString() 
             }));
 
-            // Pastikan kamera benar-benar berhenti sebelum menampilkan loading layar penuh
             await stopScanner();
             
             const overlay = document.getElementById('loadingOverlay');
@@ -994,19 +1035,18 @@
                     showToast("Data berhasil disimpan!", "success");
                     
                     payload.forEach(p => {
-                        scannedBarcodesDB.add(p.barcode);
+                        scannedBarcodesDB.add(p.item_barcode);
                         dbHistoryData.push({
                             namasales: p.nama_sales,
                             namaoutlet: p.nama_outlet,
                             tipetransaksi: p.tipe_transaksi,
-                            barcode: p.barcode,
-                            waktuscanhp: p.scan_time
+                            msisdn: p.item_barcode,
+                            timestamp: p.timestamp
                         });
                     });
 
                     scannedData = [];
                     renderScannedList();
-                    // Nyalakan ulang kamera jika proses simpan sukses
                     await initScanner();
                 } else {
                     throw new Error(result.message || "Gagal menyimpan");
