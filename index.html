@@ -173,7 +173,7 @@
                         <!-- Input Range Akhir (Tersembunyi secara default) -->
                         <div id="rangeInputContainer" class="hidden flex items-center gap-2 fade-in">
                             <div class="bg-rose-50 border border-rose-100 px-3 py-2.5 rounded-xl text-red-500 font-bold text-sm shrink-0">s/d</div>
-                            <input type="text" inputmode="numeric" id="manualBarcodeEndInput" onkeypress="handleManualInput(event)" class="bg-rose-50 border-2 border-rose-100 text-red-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input barcode nomor akhir...">
+                            <input type="text" inputmode="numeric" id="manualBarcodeEndInput" onkeypress="handleManualInput(event)" class="bg-rose-50 border-2 border-rose-100 text-red-900 text-sm rounded-xl focus:ring-red-500 focus:border-red-500 block w-full p-2.5 font-bold transition outline-none" placeholder="Input Msisdn akhir...">
                         </div>
                     </div>
                 </div>
@@ -570,13 +570,13 @@
                 container.classList.remove('hidden');
                 btn.classList.replace('bg-gray-100', 'bg-red-100');
                 btn.classList.replace('text-gray-500', 'text-red-600');
-                document.getElementById('manualBarcodeInput').placeholder = "Input barcode awal...";
+                document.getElementById('manualBarcodeInput').placeholder = "Input Msisdn awal...";
             } else {
                 container.classList.add('hidden');
                 btn.classList.replace('bg-red-100', 'bg-gray-100');
                 btn.classList.replace('text-red-600', 'text-gray-500');
                 document.getElementById('manualBarcodeEndInput').value = '';
-                document.getElementById('manualBarcodeInput').placeholder = "Input manual barcode...";
+                document.getElementById('manualBarcodeInput').placeholder = "Input manual Msisdn...";
             }
         }
 
